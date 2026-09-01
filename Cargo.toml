@@ -1,0 +1,19 @@
+[package]
+name = "lolr"
+version = "0.1.0"
+edition = "2021"
+description = "Rainbow colorizer for text with animation support"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.27"
+rand = "0.8"
+
+[lib]
+name = "lolr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lolr"
+path = "src/main.rs"
