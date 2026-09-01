@@ -78,11 +78,16 @@ fn main() -> io::Result<()> {
     let stdout = io::stdout();
     let stdin = io::stdin();
     let is_stdout_tty = stdout.is_terminal();
-    let is_stdin_tty = stdin.is_terminal();
 
     if !is_stdout_tty && !args.force {
-        let text = read_input(&args.files)?;
-        print!("{}", text);
+        // No color: pass through
+        if args.files.is_empty() {
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer)?;
+            print!("{}", buffer);
+        } else {
+            print!("{}", read_files(&args.files)?);
+        }
         return Ok(());
     }
 
@@ -94,12 +99,12 @@ fn main() -> io::Result<()> {
         invert: args.invert,
     };
 
-    // Interactive stdin: process line by line
-    if args.files.is_empty() && is_stdin_tty {
+    // Stdin: process line by line (matches Ruby lolcat behavior)
+    if args.files.is_empty() {
         let mut offset = seed;
         for line in stdin.lock().lines() {
             let line = line?;
-            if args.animate {
+            if args.animate && is_stdout_tty {
                 let anim_opts = AnimateOpts {
                     gradient,
                     spread: args.spread,
@@ -120,20 +125,26 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    let text = read_input(&args.files)?;
+    // Files: read all then process
+    let text = read_files(&args.files)?;
 
     if args.animate && is_stdout_tty {
-        let anim_opts = AnimateOpts {
-            gradient,
-            spread: args.spread,
-            freq: args.freq,
-            seed,
-            duration: args.duration,
-            speed: args.speed,
-            truecolor,
-            invert: args.invert,
-        };
-        animate(&text, &anim_opts)?;
+        // Animate file content line by line too
+        let mut offset = seed;
+        for line in text.lines() {
+            let anim_opts = AnimateOpts {
+                gradient,
+                spread: args.spread,
+                freq: args.freq,
+                seed: offset,
+                duration: args.duration,
+                speed: args.speed,
+                truecolor,
+                invert: args.invert,
+            };
+            animate(line, &anim_opts)?;
+            offset += 1.0;
+        }
     } else {
         let mut offset = seed;
         for line in text.lines() {
@@ -146,17 +157,11 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn read_input(files: &[String]) -> io::Result<String> {
-    if files.is_empty() {
-        let mut buffer = String::new();
-        io::stdin().read_to_string(&mut buffer)?;
-        Ok(buffer)
-    } else {
-        let mut combined = String::new();
-        for path in files {
-            let content = fs::read_to_string(path)?;
-            combined.push_str(&content);
-        }
-        Ok(combined)
+fn read_files(files: &[String]) -> io::Result<String> {
+    let mut combined = String::new();
+    for path in files {
+        let content = fs::read_to_string(path)?;
+        combined.push_str(&content);
     }
+    Ok(combined)
 }
