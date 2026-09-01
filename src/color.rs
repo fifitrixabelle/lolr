@@ -54,11 +54,11 @@ mod tests {
 
     #[test]
     fn rainbow_values_in_valid_range() {
+        // Test that rainbow_color produces valid RGB values
+        // (This test primarily ensures the function completes without panic)
         for i in 0..100 {
-            let color = rainbow_color(0.1, i as f64);
-            assert!(color.r <= 255);
-            assert!(color.g <= 255);
-            assert!(color.b <= 255);
+            let _color = rainbow_color(0.1, i as f64);
+            // u8 values are always in 0..=255, so just verify it computes
         }
     }
 
@@ -71,15 +71,24 @@ mod tests {
 
     #[test]
     fn rgb_to_256_pure_white() {
-        let color = Rgb { r: 255, g: 255, b: 255 };
+        let color = Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        };
         let code = rgb_to_256(color);
         assert_eq!(code, 231);
     }
 
     #[test]
     fn rgb_to_256_grayscale() {
-        let color = Rgb { r: 128, g: 128, b: 128 };
+        let color = Rgb {
+            r: 128,
+            g: 128,
+            b: 128,
+        };
         let code = rgb_to_256(color);
-        assert!(code >= 232 && code <= 255);
+        // Grayscale colors map to the 232-255 range
+        assert!(code >= 232);
     }
 }

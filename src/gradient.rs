@@ -1,4 +1,4 @@
-use crate::color::{Rgb, rainbow_color};
+use crate::color::{rainbow_color, Rgb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Gradient {
@@ -37,7 +37,11 @@ fn lerp_color(colors: &[(f64, Rgb)], t: f64) -> Rgb {
             };
         }
     }
-    colors.last().map(|(_, c)| *c).unwrap_or(Rgb { r: 255, g: 255, b: 255 })
+    colors.last().map(|(_, c)| *c).unwrap_or(Rgb {
+        r: 255,
+        g: 255,
+        b: 255,
+    })
 }
 
 pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
@@ -48,8 +52,22 @@ pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
             let stops = [
                 (0.0, Rgb { r: 128, g: 0, b: 0 }),
                 (0.3, Rgb { r: 255, g: 0, b: 0 }),
-                (0.6, Rgb { r: 255, g: 165, b: 0 }),
-                (1.0, Rgb { r: 255, g: 255, b: 0 }),
+                (
+                    0.6,
+                    Rgb {
+                        r: 255,
+                        g: 165,
+                        b: 0,
+                    },
+                ),
+                (
+                    1.0,
+                    Rgb {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                    },
+                ),
             ];
             lerp_color(&stops, t)
         }
@@ -57,9 +75,30 @@ pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
             let t = ((freq * i).sin() + 1.0) / 2.0;
             let stops = [
                 (0.0, Rgb { r: 0, g: 0, b: 128 }),
-                (0.4, Rgb { r: 0, g: 128, b: 255 }),
-                (0.7, Rgb { r: 0, g: 255, b: 255 }),
-                (1.0, Rgb { r: 255, g: 255, b: 255 }),
+                (
+                    0.4,
+                    Rgb {
+                        r: 0,
+                        g: 128,
+                        b: 255,
+                    },
+                ),
+                (
+                    0.7,
+                    Rgb {
+                        r: 0,
+                        g: 255,
+                        b: 255,
+                    },
+                ),
+                (
+                    1.0,
+                    Rgb {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                    },
+                ),
             ];
             lerp_color(&stops, t)
         }
@@ -74,9 +113,9 @@ pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
         Gradient::Neon => {
             let base = rainbow_color(freq * 1.5, i);
             Rgb {
-                r: base.r.saturating_add(30).min(255),
-                g: base.g.saturating_add(30).min(255),
-                b: base.b.saturating_add(30).min(255),
+                r: base.r.saturating_add(30),
+                g: base.g.saturating_add(30),
+                b: base.b.saturating_add(30),
             }
         }
     }

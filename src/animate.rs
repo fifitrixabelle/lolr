@@ -8,7 +8,7 @@ use crossterm::{
 };
 
 use crate::gradient::Gradient;
-use crate::render::{RenderOpts, render_line};
+use crate::render::{render_line, RenderOpts};
 
 #[derive(Debug, Clone)]
 pub struct AnimateOpts {
@@ -39,7 +39,9 @@ impl Default for AnimateOpts {
 
 pub fn animate(text: &str, opts: &AnimateOpts) -> io::Result<()> {
     let mut stdout = io::stdout();
-    let frame_duration = Duration::from_secs_f64(1.0 / opts.speed);
+    // Clamp speed to avoid division by zero or negative values
+    let safe_speed = opts.speed.max(0.1);
+    let frame_duration = Duration::from_secs_f64(1.0 / safe_speed);
 
     let render_opts = RenderOpts {
         gradient: opts.gradient,

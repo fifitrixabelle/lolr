@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal, Read};
 use clap::Parser;
 use rand::Rng;
 
-use lolr::{Gradient, RenderOpts, AnimateOpts, render_line, animate};
+use lolr::{animate, render_line, AnimateOpts, Gradient, RenderOpts};
 
 #[derive(Parser, Debug)]
 #[command(name = "lolr")]
@@ -65,8 +65,7 @@ fn detect_truecolor() -> bool {
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    let gradient = Gradient::from_name(&args.gradient)
-        .unwrap_or(Gradient::Rainbow);
+    let gradient = Gradient::from_name(&args.gradient).unwrap_or(Gradient::Rainbow);
 
     let truecolor = args.truecolor || detect_truecolor();
 

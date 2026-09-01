@@ -1,5 +1,5 @@
-use crate::color::{Rgb, rgb_to_256};
-use crate::gradient::{Gradient, gradient_color};
+use crate::color::{rgb_to_256, Rgb};
+use crate::gradient::{gradient_color, Gradient};
 
 #[derive(Debug, Clone)]
 pub struct RenderOpts {
@@ -45,15 +45,26 @@ fn format_color(rgb: Rgb, truecolor: bool, invert: bool) -> String {
 pub fn render_line(line: &str, offset: f64, opts: &RenderOpts) -> String {
     let mut result = String::new();
     let mut col = 0;
+    let mut chars = line.chars().peekable();
 
-    for ch in line.chars() {
+    while let Some(ch) = chars.next() {
         if ch == '\n' || ch == '\r' {
             result.push(ch);
             continue;
         }
 
+        // Pass through ANSI escape sequences without colorizing
         if ch == '\x1b' {
             result.push(ch);
+            // Continue reading until we hit the sequence terminator
+            while let Some(&next_ch) = chars.peek() {
+                result.push(next_ch);
+                chars.next();
+                // Common ANSI terminators
+                if next_ch.is_ascii_alphabetic() || next_ch == 'm' {
+                    break;
+                }
+            }
             continue;
         }
 
@@ -85,14 +96,20 @@ mod tests {
 
     #[test]
     fn render_truecolor_uses_rgb() {
-        let opts = RenderOpts { truecolor: true, ..Default::default() };
+        let opts = RenderOpts {
+            truecolor: true,
+            ..Default::default()
+        };
         let result = render_line("A", 0.0, &opts);
         assert!(result.contains("\x1b[38;2;"));
     }
 
     #[test]
     fn render_256_uses_256_code() {
-        let opts = RenderOpts { truecolor: false, ..Default::default() };
+        let opts = RenderOpts {
+            truecolor: false,
+            ..Default::default()
+        };
         let result = render_line("A", 0.0, &opts);
         assert!(result.contains("\x1b[38;5;"));
     }
@@ -106,7 +123,11 @@ mod tests {
 
     #[test]
     fn render_invert_truecolor_uses_rgb_black() {
-        let opts = RenderOpts { truecolor: true, invert: true, ..Default::default() };
+        let opts = RenderOpts {
+            truecolor: true,
+            invert: true,
+            ..Default::default()
+        };
         let result = render_line("A", 0.0, &opts);
         assert!(result.contains("38;2;0;0;0"));
     }
