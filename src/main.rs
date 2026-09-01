@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, IsTerminal, Read};
+use std::io::{self, BufRead, IsTerminal, Read};
 
 use clap::Parser;
 use rand::Rng;
@@ -76,18 +76,40 @@ fn main() -> io::Result<()> {
     };
 
     let stdout = io::stdout();
-    let is_tty = stdout.is_terminal();
+    let stdin = io::stdin();
+    let is_stdout_tty = stdout.is_terminal();
+    let is_stdin_tty = stdin.is_terminal();
 
-    if !is_tty && !args.force {
+    if !is_stdout_tty && !args.force {
         let text = read_input(&args.files)?;
         print!("{}", text);
         return Ok(());
     }
 
+    let opts = RenderOpts {
+        gradient,
+        spread: args.spread,
+        freq: args.freq,
+        truecolor,
+        invert: args.invert,
+    };
+
+    // Interactive stdin: read and colorize line by line
+    if args.files.is_empty() && is_stdin_tty && !args.animate {
+        let mut offset = seed;
+        for line in stdin.lock().lines() {
+            let line = line?;
+            let colored = render_line(&line, offset, &opts);
+            println!("{}", colored);
+            offset += 1.0;
+        }
+        return Ok(());
+    }
+
     let text = read_input(&args.files)?;
 
-    if args.animate && is_tty {
-        let opts = AnimateOpts {
+    if args.animate && is_stdout_tty {
+        let anim_opts = AnimateOpts {
             gradient,
             spread: args.spread,
             freq: args.freq,
@@ -97,16 +119,8 @@ fn main() -> io::Result<()> {
             truecolor,
             invert: args.invert,
         };
-        animate(&text, &opts)?;
+        animate(&text, &anim_opts)?;
     } else {
-        let opts = RenderOpts {
-            gradient,
-            spread: args.spread,
-            freq: args.freq,
-            truecolor,
-            invert: args.invert,
-        };
-
         let mut offset = seed;
         for line in text.lines() {
             let colored = render_line(line, offset, &opts);
