@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "Rainbow colorizer for text with animation support"
 license = "MIT"
+repository = "https://github.com/fifitrixabelle/lolr"
+keywords = ["cli", "terminal", "rainbow", "lolcat", "ansi"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
