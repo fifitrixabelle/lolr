@@ -5,3 +5,6 @@
 # Worktrees and SDD workspace
 .worktrees/
 .superpowers/
+
+# Build artifacts
+/target/
