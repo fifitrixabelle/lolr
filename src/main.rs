@@ -94,13 +94,27 @@ fn main() -> io::Result<()> {
         invert: args.invert,
     };
 
-    // Interactive stdin: read and colorize line by line
-    if args.files.is_empty() && is_stdin_tty && !args.animate {
+    // Interactive stdin: process line by line
+    if args.files.is_empty() && is_stdin_tty {
         let mut offset = seed;
         for line in stdin.lock().lines() {
             let line = line?;
-            let colored = render_line(&line, offset, &opts);
-            println!("{}", colored);
+            if args.animate {
+                let anim_opts = AnimateOpts {
+                    gradient,
+                    spread: args.spread,
+                    freq: args.freq,
+                    seed: offset,
+                    duration: args.duration,
+                    speed: args.speed,
+                    truecolor,
+                    invert: args.invert,
+                };
+                animate(&line, &anim_opts)?;
+            } else {
+                let colored = render_line(&line, offset, &opts);
+                println!("{}", colored);
+            }
             offset += 1.0;
         }
         return Ok(());
