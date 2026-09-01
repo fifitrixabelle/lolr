@@ -3,6 +3,8 @@
 [![Crates.io](https://img.shields.io/crates/v/lolr.svg)](https://crates.io/crates/lolr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+This project is inspired by the original [lolcat](https://github.com/busyloop/lolcat) by busyloop. The cat image is from the original lolcat README. lolr extends the concept with native Rust implementation and animation support.
+
 A Rust CLI that colorizes text with rainbow gradients, including animation support.
 
 ![nomcat](assets/nom.jpg)
@@ -101,7 +103,3 @@ animate("Animated text", &opts)?;
 ## License
 
 MIT
-
-## Credits
-
-This project is inspired by the original [lolcat](https://github.com/busyloop/lolcat) by busyloop. The cat ASCII art is derived from the original lolcat README. lolr extends the concept with native Rust implementation and animation support.
