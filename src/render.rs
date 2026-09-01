@@ -35,7 +35,8 @@ fn format_color(rgb: Rgb, truecolor: bool, invert: bool) -> String {
         } else {
             format!("48;5;{}", rgb_to_256(rgb))
         };
-        format!("\x1b[{};{}m", bg_code, "38;5;0")
+        let fg_black = if truecolor { "38;2;0;0;0" } else { "38;5;0" };
+        format!("\x1b[{};{}m", bg_code, fg_black)
     } else {
         format!("\x1b[{}m", code)
     }
@@ -101,5 +102,12 @@ mod tests {
         let opts = RenderOpts::default();
         let result = render_line("a\nb", 0.0, &opts);
         assert!(result.contains("\n"));
+    }
+
+    #[test]
+    fn render_invert_truecolor_uses_rgb_black() {
+        let opts = RenderOpts { truecolor: true, invert: true, ..Default::default() };
+        let result = render_line("A", 0.0, &opts);
+        assert!(result.contains("38;2;0;0;0"));
     }
 }
