@@ -3,8 +3,9 @@ use std::thread;
 use std::time::Duration;
 
 use crossterm::{
-    cursor::{RestorePosition, SavePosition},
+    cursor::{Hide, RestorePosition, SavePosition, Show},
     execute,
+    terminal::{Clear, ClearType},
 };
 
 use crate::gradient::Gradient;
@@ -51,10 +52,10 @@ pub fn animate(text: &str, opts: &AnimateOpts) -> io::Result<()> {
         invert: opts.invert,
     };
 
-    execute!(stdout, SavePosition)?;
+    execute!(stdout, SavePosition, Hide)?;
 
     for frame in 0..opts.duration {
-        execute!(stdout, RestorePosition)?;
+        execute!(stdout, RestorePosition, Clear(ClearType::FromCursorDown))?;
 
         let offset = opts.seed + frame as f64 * opts.spread;
 
@@ -67,6 +68,7 @@ pub fn animate(text: &str, opts: &AnimateOpts) -> io::Result<()> {
         thread::sleep(frame_duration);
     }
 
+    execute!(stdout, Show)?;
     Ok(())
 }
 
