@@ -32,11 +32,11 @@ struct Args {
     animate: bool,
 
     /// Animation frames
-    #[arg(short, long, default_value = "12")]
+    #[arg(short, long, default_value = "6")]
     duration: u32,
 
     /// Animation FPS
-    #[arg(short, long, default_value = "20")]
+    #[arg(short, long, default_value = "40")]
     speed: f64,
 
     /// Swap foreground/background
@@ -99,28 +99,32 @@ fn main() -> io::Result<()> {
         invert: args.invert,
     };
 
-    // Stdin: process line by line (matches Ruby lolcat behavior)
+    // Stdin handling
     if args.files.is_empty() {
-        let mut offset = seed;
-        for line in stdin.lock().lines() {
-            let line = line?;
-            if args.animate && is_stdout_tty {
-                let anim_opts = AnimateOpts {
-                    gradient,
-                    spread: args.spread,
-                    freq: args.freq,
-                    seed: offset,
-                    duration: args.duration,
-                    speed: args.speed,
-                    truecolor,
-                    invert: args.invert,
-                };
-                animate(&line, &anim_opts)?;
-            } else {
+        if args.animate && is_stdout_tty {
+            // Animation: buffer all input, animate whole block at once
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer)?;
+            let anim_opts = AnimateOpts {
+                gradient,
+                spread: args.spread,
+                freq: args.freq,
+                seed,
+                duration: args.duration,
+                speed: args.speed,
+                truecolor,
+                invert: args.invert,
+            };
+            animate(&buffer, &anim_opts)?;
+        } else {
+            // No animation: process line by line for responsiveness
+            let mut offset = seed;
+            for line in stdin.lock().lines() {
+                let line = line?;
                 let colored = render_line(&line, offset, &opts);
                 println!("{}", colored);
+                offset += 1.0;
             }
-            offset += 1.0;
         }
         return Ok(());
     }
@@ -129,22 +133,18 @@ fn main() -> io::Result<()> {
     let text = read_files(&args.files)?;
 
     if args.animate && is_stdout_tty {
-        // Animate file content line by line too
-        let mut offset = seed;
-        for line in text.lines() {
-            let anim_opts = AnimateOpts {
-                gradient,
-                spread: args.spread,
-                freq: args.freq,
-                seed: offset,
-                duration: args.duration,
-                speed: args.speed,
-                truecolor,
-                invert: args.invert,
-            };
-            animate(line, &anim_opts)?;
-            offset += 1.0;
-        }
+        // Animation: animate whole file block at once
+        let anim_opts = AnimateOpts {
+            gradient,
+            spread: args.spread,
+            freq: args.freq,
+            seed,
+            duration: args.duration,
+            speed: args.speed,
+            truecolor,
+            invert: args.invert,
+        };
+        animate(&text, &anim_opts)?;
     } else {
         let mut offset = seed;
         for line in text.lines() {
