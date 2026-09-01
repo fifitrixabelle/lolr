@@ -1,14 +1,11 @@
 # lolr
 
+[![Crates.io](https://img.shields.io/crates/v/lolr.svg)](https://crates.io/crates/lolr)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Rust CLI that colorizes text with rainbow gradients, including animation support.
 
-```
-    /\_/\
-   ( o.o )
-    > ^ <
-   /|   |\
-  (_|   |_)
-```
+![nyan cat](https://github.com/busyloop/lolcat/raw/master/ass/nom.jpg)
 
 ## Why lolr?
 
@@ -17,7 +14,7 @@ Existing Rust ports of lolcat lack the `-a` animation feature, which creates a d
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install lolr
 ```
 
 ## Usage
