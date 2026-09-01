@@ -5,7 +5,7 @@
 
 A Rust CLI that colorizes text with rainbow gradients, including animation support.
 
-![nyan cat](assets/nom.jpg)
+![nomcat](assets/nom.jpg)
 
 ## Why lolr?
 
