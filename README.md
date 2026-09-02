@@ -3,15 +3,11 @@
 [![Crates.io](https://img.shields.io/crates/v/lolr.svg)](https://crates.io/crates/lolr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This project is inspired by the original [lolcat](https://github.com/busyloop/lolcat) by busyloop. The cat image is from the original lolcat README. lolr extends the concept with native Rust implementation and animation support.
-
-A Rust CLI that colorizes text with rainbow gradients, including animation support.
+A Rust implementation of [lolcat](https://github.com/busyloop/lolcat) with full `-a` animation support. Other Rust ports lack animation; lolr brings it back, plus adds multiple gradient presets.
 
 ![nomcat](assets/nom.jpg)
 
-## Why lolr?
-
-Existing Rust ports of lolcat lack the `-a` animation feature, which creates a dynamic, moving rainbow effect. **lolr** fills this gap by providing full animation support with multiple gradient presets, making it the most feature-complete Rust implementation of lolcat.
+*Cat image from the original lolcat by busyloop.*
 
 ## Installation
 
