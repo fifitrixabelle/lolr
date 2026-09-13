@@ -365,7 +365,7 @@ pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
                     },
                 ),
                 (
-                    0.2,
+                    0.5,
                     Rgb {
                         r: 97,
                         g: 255,
@@ -373,35 +373,11 @@ pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
                     },
                 ),
                 (
-                    0.4,
-                    Rgb {
-                        r: 255,
-                        g: 202,
-                        b: 133,
-                    },
-                ),
-                (
-                    0.6,
-                    Rgb {
-                        r: 246,
-                        g: 148,
-                        b: 255,
-                    },
-                ),
-                (
-                    0.8,
-                    Rgb {
-                        r: 130,
-                        g: 226,
-                        b: 255,
-                    },
-                ),
-                (
                     1.0,
                     Rgb {
-                        r: 255,
-                        g: 103,
-                        b: 103,
+                        r: 162,
+                        g: 119,
+                        b: 255,
                     },
                 ),
             ];
@@ -431,6 +407,23 @@ mod tests {
     fn ocean_gradient_is_cool() {
         let color = gradient_color(Gradient::Ocean, 0.1, 0.0);
         assert!(color.b >= color.r);
+    }
+
+    #[test]
+    fn aura_gradient_stays_in_the_cool_palette() {
+        for step in 0..=1_000 {
+            let color = gradient_color(Gradient::Aura, 0.01, step as f64);
+            assert!(color.b >= color.r, "unexpected warm Aura color: {color:?}");
+        }
+
+        assert_eq!(
+            gradient_color(Gradient::Aura, 0.1, 0.0),
+            Rgb {
+                r: 97,
+                g: 255,
+                b: 202,
+            }
+        );
     }
 
     #[test]

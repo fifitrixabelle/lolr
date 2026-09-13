@@ -74,7 +74,7 @@ echo "Animated text" | lolr -a --speed 30 --duration 20
 - `forest` - Deep green → emerald → lime
 - `synthwave` - Violet → hot pink → electric blue
 - `viridis` - Perceptually balanced purple → teal → yellow
-- `aura` - Accent colors from the [Aura Theme](https://github.com/daltonmenezes/aura-theme)
+- `aura` - Cool purple → blue → teal glow from the [Aura Theme](https://github.com/daltonmenezes/aura-theme)
 
 ## Configuration
 
