@@ -1,8 +1,10 @@
 use crate::color::{rainbow_color, Rgb};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Gradient {
     #[default]
     Rainbow,
@@ -10,9 +12,42 @@ pub enum Gradient {
     Ocean,
     Pastel,
     Neon,
+    Sunset,
+    Forest,
+    Synthwave,
+    Viridis,
+    Aura,
 }
 
 impl Gradient {
+    pub const ALL: [Gradient; 10] = [
+        Gradient::Rainbow,
+        Gradient::Fire,
+        Gradient::Ocean,
+        Gradient::Pastel,
+        Gradient::Neon,
+        Gradient::Sunset,
+        Gradient::Forest,
+        Gradient::Synthwave,
+        Gradient::Viridis,
+        Gradient::Aura,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Gradient::Rainbow => "rainbow",
+            Gradient::Fire => "fire",
+            Gradient::Ocean => "ocean",
+            Gradient::Pastel => "pastel",
+            Gradient::Neon => "neon",
+            Gradient::Sunset => "sunset",
+            Gradient::Forest => "forest",
+            Gradient::Synthwave => "synthwave",
+            Gradient::Viridis => "viridis",
+            Gradient::Aura => "aura",
+        }
+    }
+
     pub fn from_name(name: &str) -> Option<Gradient> {
         match name.to_lowercase().as_str() {
             "rainbow" => Some(Gradient::Rainbow),
@@ -20,6 +55,11 @@ impl Gradient {
             "ocean" => Some(Gradient::Ocean),
             "pastel" => Some(Gradient::Pastel),
             "neon" => Some(Gradient::Neon),
+            "sunset" => Some(Gradient::Sunset),
+            "forest" => Some(Gradient::Forest),
+            "synthwave" => Some(Gradient::Synthwave),
+            "viridis" => Some(Gradient::Viridis),
+            "aura" => Some(Gradient::Aura),
             _ => None,
         }
     }
@@ -33,16 +73,25 @@ impl FromStr for Gradient {
     }
 }
 
+impl fmt::Display for Gradient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseGradientError(String);
 
 impl fmt::Display for ParseGradientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "unknown gradient {:?}; expected one of: rainbow, fire, ocean, pastel, neon",
-            self.0
-        )
+        write!(f, "unknown gradient {:?}; expected one of: ", self.0)?;
+        for (index, gradient) in Gradient::ALL.iter().enumerate() {
+            if index > 0 {
+                f.write_str(", ")?;
+            }
+            gradient.fmt(f)?;
+        }
+        Ok(())
     }
 }
 
@@ -143,6 +192,221 @@ pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
                 b: base.b.saturating_add(30),
             }
         }
+        Gradient::Sunset => {
+            let t = ((freq * i).sin() + 1.0) / 2.0;
+            let stops = [
+                (
+                    0.0,
+                    Rgb {
+                        r: 45,
+                        g: 27,
+                        b: 105,
+                    },
+                ),
+                (
+                    0.25,
+                    Rgb {
+                        r: 128,
+                        g: 0,
+                        b: 128,
+                    },
+                ),
+                (
+                    0.5,
+                    Rgb {
+                        r: 255,
+                        g: 64,
+                        b: 129,
+                    },
+                ),
+                (
+                    0.75,
+                    Rgb {
+                        r: 255,
+                        g: 140,
+                        b: 66,
+                    },
+                ),
+                (
+                    1.0,
+                    Rgb {
+                        r: 255,
+                        g: 214,
+                        b: 102,
+                    },
+                ),
+            ];
+            lerp_color(&stops, t)
+        }
+        Gradient::Forest => {
+            let t = ((freq * i).sin() + 1.0) / 2.0;
+            let stops = [
+                (
+                    0.0,
+                    Rgb {
+                        r: 10,
+                        g: 54,
+                        b: 34,
+                    },
+                ),
+                (
+                    0.33,
+                    Rgb {
+                        r: 20,
+                        g: 120,
+                        b: 70,
+                    },
+                ),
+                (
+                    0.66,
+                    Rgb {
+                        r: 77,
+                        g: 184,
+                        b: 72,
+                    },
+                ),
+                (
+                    1.0,
+                    Rgb {
+                        r: 218,
+                        g: 236,
+                        b: 126,
+                    },
+                ),
+            ];
+            lerp_color(&stops, t)
+        }
+        Gradient::Synthwave => {
+            let t = ((freq * i).sin() + 1.0) / 2.0;
+            let stops = [
+                (
+                    0.0,
+                    Rgb {
+                        r: 94,
+                        g: 23,
+                        b: 235,
+                    },
+                ),
+                (
+                    0.35,
+                    Rgb {
+                        r: 207,
+                        g: 37,
+                        b: 247,
+                    },
+                ),
+                (
+                    0.65,
+                    Rgb {
+                        r: 255,
+                        g: 41,
+                        b: 117,
+                    },
+                ),
+                (
+                    1.0,
+                    Rgb {
+                        r: 0,
+                        g: 229,
+                        b: 255,
+                    },
+                ),
+            ];
+            lerp_color(&stops, t)
+        }
+        Gradient::Viridis => {
+            let t = ((freq * i).sin() + 1.0) / 2.0;
+            let stops = [
+                (0.0, Rgb { r: 68, g: 1, b: 84 }),
+                (
+                    0.25,
+                    Rgb {
+                        r: 59,
+                        g: 82,
+                        b: 139,
+                    },
+                ),
+                (
+                    0.5,
+                    Rgb {
+                        r: 33,
+                        g: 145,
+                        b: 140,
+                    },
+                ),
+                (
+                    0.75,
+                    Rgb {
+                        r: 94,
+                        g: 201,
+                        b: 98,
+                    },
+                ),
+                (
+                    1.0,
+                    Rgb {
+                        r: 253,
+                        g: 231,
+                        b: 37,
+                    },
+                ),
+            ];
+            lerp_color(&stops, t)
+        }
+        Gradient::Aura => {
+            let t = ((freq * i).sin() + 1.0) / 2.0;
+            let stops = [
+                (
+                    0.0,
+                    Rgb {
+                        r: 162,
+                        g: 119,
+                        b: 255,
+                    },
+                ),
+                (
+                    0.2,
+                    Rgb {
+                        r: 97,
+                        g: 255,
+                        b: 202,
+                    },
+                ),
+                (
+                    0.4,
+                    Rgb {
+                        r: 255,
+                        g: 202,
+                        b: 133,
+                    },
+                ),
+                (
+                    0.6,
+                    Rgb {
+                        r: 246,
+                        g: 148,
+                        b: 255,
+                    },
+                ),
+                (
+                    0.8,
+                    Rgb {
+                        r: 130,
+                        g: 226,
+                        b: 255,
+                    },
+                ),
+                (
+                    1.0,
+                    Rgb {
+                        r: 255,
+                        g: 103,
+                        b: 103,
+                    },
+                ),
+            ];
+            lerp_color(&stops, t)
+        }
     }
 }
 
@@ -174,5 +438,12 @@ mod tests {
         assert_eq!(Gradient::from_name("rainbow"), Some(Gradient::Rainbow));
         assert_eq!(Gradient::from_name("FIRE"), Some(Gradient::Fire));
         assert_eq!(Gradient::from_name("invalid"), None);
+    }
+
+    #[test]
+    fn all_gradient_names_are_parseable() {
+        for gradient in Gradient::ALL {
+            assert_eq!(Gradient::from_name(gradient.as_str()), Some(gradient));
+        }
     }
 }

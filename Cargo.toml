@@ -14,6 +14,9 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.27"
 ctrlc = "3"
 rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+toml = "0.8"
 
 [lib]
 name = "lolr"
@@ -22,7 +25,6 @@ path = "src/lib.rs"
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
-tempfile = "3"
 
 [[bin]]
 name = "lolr"
