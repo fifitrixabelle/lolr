@@ -62,7 +62,7 @@ release release_version:
 
     RELEASE_VERSION="{{release_version}}" perl -0pi -e 's/\A(.*?^\[package\].*?^version = ")[^"]+(")/$1$ENV{RELEASE_VERSION}$2/ms' Cargo.toml
     cargo check --quiet
-    if ! cargo pkgid | grep -q "@{{release_version}}$"; then
+    if ! cargo pkgid | grep -Eq "[#@]{{release_version}}$"; then
         echo "failed to update package version" >&2
         exit 2
     fi
