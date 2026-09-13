@@ -1,4 +1,6 @@
 use crate::color::{rainbow_color, Rgb};
+use std::fmt;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Gradient {
@@ -22,6 +24,29 @@ impl Gradient {
         }
     }
 }
+
+impl FromStr for Gradient {
+    type Err = ParseGradientError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Self::from_name(name).ok_or_else(|| ParseGradientError(name.to_owned()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseGradientError(String);
+
+impl fmt::Display for ParseGradientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "unknown gradient {:?}; expected one of: rainbow, fire, ocean, pastel, neon",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for ParseGradientError {}
 
 fn lerp_color(colors: &[(f64, Rgb)], t: f64) -> Rgb {
     let t = t.rem_euclid(1.0);

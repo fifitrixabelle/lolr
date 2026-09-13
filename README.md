@@ -45,8 +45,8 @@ echo "Animated text" | lolr -a --speed 30 --duration 20
 | `-F` | `--freq` | Rainbow frequency | 0.1 |
 | `-S` | `--seed` | Color seed (0=random) | 0 |
 | `-a` | `--animate` | Enable animation | off |
-| `-d` | `--duration` | Animation frames | 12 |
-| `-s` | `--speed` | Animation FPS | 20 |
+| `-d` | `--duration` | Animation frames | 6 |
+| `-s` | `--speed` | Animation FPS | 40 |
 | `-g` | `--gradient` | Gradient preset | rainbow |
 | `-i` | `--invert` | Swap foreground/background | off |
 | `-t` | `--truecolor` | Force 24-bit color | auto |
@@ -59,6 +59,9 @@ echo "Animated text" | lolr -a --speed 30 --duration 20
 - `ocean` - Blue → cyan → white
 - `pastel` - Soft pastel rainbow
 - `neon` - Vibrant high-saturation colors
+
+lolr intentionally defaults to a shorter 40 FPS animation instead of lolcat's
+12 frames at 20 FPS. Use `--duration 12 --speed 20` for the classic timing.
 
 ## Library Usage
 

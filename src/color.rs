@@ -19,25 +19,25 @@ pub fn rainbow_color(freq: f64, i: f64) -> Rgb {
 }
 
 pub fn rgb_to_256(color: Rgb) -> u8 {
-    let r = color.r as u16;
-    let g = color.g as u16;
-    let b = color.b as u16;
-
-    if r == g && g == b {
-        if r < 8 {
-            return 16;
+    // Match the Paint gem used by Ruby lolcat: use the grayscale ramp when
+    // all three components fall in the same 42.5-wide band, otherwise use
+    // the xterm 6x6x6 color cube.
+    let components = [color.r as f64, color.g as f64, color.b as f64];
+    let mut separator = 42.5;
+    loop {
+        if components.iter().any(|component| *component < separator) {
+            if components.iter().all(|component| *component < separator) {
+                let average = components.iter().sum::<f64>() / 33.0;
+                return 232 + average.round() as u8;
+            }
+            break;
         }
-        if r > 248 {
-            return 231;
-        }
-        return (((r - 8) as f64 / 247.0 * 24.0) as u8) + 232;
+        separator += 42.5;
     }
 
-    let r_idx = (r as f64 / 255.0 * 5.0).round() as u8;
-    let g_idx = (g as f64 / 255.0 * 5.0).round() as u8;
-    let b_idx = (b as f64 / 255.0 * 5.0).round() as u8;
+    let [r, g, b] = components.map(|component| (6.0 * component / 256.0) as u8);
 
-    16 + 36 * r_idx + 6 * g_idx + b_idx
+    16 + 36 * r + 6 * g + b
 }
 
 #[cfg(test)]
@@ -77,7 +77,7 @@ mod tests {
             b: 255,
         };
         let code = rgb_to_256(color);
-        assert_eq!(code, 231);
+        assert_eq!(code, 255);
     }
 
     #[test]
@@ -88,7 +88,16 @@ mod tests {
             b: 128,
         };
         let code = rgb_to_256(color);
-        // Grayscale colors map to the 232-255 range
-        assert!(code >= 232);
+        assert_eq!(code, 244);
+    }
+
+    #[test]
+    fn rgb_to_256_matches_paint_color_cube() {
+        let color = Rgb {
+            r: 153,
+            g: 223,
+            b: 76,
+        };
+        assert_eq!(rgb_to_256(color), 155);
     }
 }

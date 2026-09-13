@@ -3,7 +3,7 @@ pub mod color;
 pub mod gradient;
 pub mod render;
 
-pub use animate::{animate, animate_line, AnimateOpts};
+pub use animate::{animate, animate_line, animate_until, AnimateOpts};
 pub use color::{rainbow_color, rgb_to_256, Rgb};
-pub use gradient::{gradient_color, Gradient};
+pub use gradient::{gradient_color, Gradient, ParseGradientError};
 pub use render::{render_line, RenderOpts};
