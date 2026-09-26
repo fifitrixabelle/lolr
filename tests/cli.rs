@@ -37,6 +37,7 @@ fn lolr() -> LolrCommand {
 fn lolr_with_config_home(config_home: &Path) -> Command {
     let mut command = Command::cargo_bin("lolr").unwrap();
     command.env("XDG_CONFIG_HOME", config_home);
+    command.env_remove("NO_COLOR");
     command
 }
 
@@ -340,4 +341,230 @@ fn dash_reads_stdin_in_file_order() {
         .assert()
         .success()
         .stdout("first\nmiddle\nlast\n");
+}
+
+#[test]
+fn preview_shows_builtins_without_creating_config() {
+    let config_home = tempfile::tempdir().unwrap();
+    let output = lolr_with_config_home(config_home.path())
+        .arg("--preview")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let output = String::from_utf8(output).unwrap();
+    assert_eq!(output.matches("The quick brown fox").count(), 10);
+    assert!(!output.contains("\x1b["));
+    assert!(!config_home.path().join("lolr/config.toml").exists());
+
+    lolr()
+        .args(["--preview", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\x1b["));
+}
+
+#[test]
+fn previews_a_named_palette_without_creating_or_rewriting_config() {
+    let config_home = tempfile::tempdir().unwrap();
+    let config = "[palettes]\ncandy = [\"#ff0000\", \"#0000ff\"]\n";
+    write_config(config_home.path(), config);
+    lolr_with_config_home(config_home.path())
+        .args(["--preview", "candy", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\x1b["));
+    lolr_with_config_home(config_home.path())
+        .args(["--preview", "candy"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("candy"));
+    assert_eq!(
+        fs::read_to_string(config_home.path().join("lolr/config.toml")).unwrap(),
+        config
+    );
+
+    let empty_home = tempfile::tempdir().unwrap();
+    lolr_with_config_home(empty_home.path())
+        .args(["--preview", "missing"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown palette"));
+    assert!(!empty_home.path().join("lolr/config.toml").exists());
+}
+
+#[test]
+fn compact_cli_and_config_override_reduce_output() {
+    let config_home = tempfile::tempdir().unwrap();
+    write_config(
+        config_home.path(),
+        "force = true\ntruecolor = true\nfreq = 0.0\ncompact = true\n",
+    );
+    let compact = lolr_with_config_home(config_home.path())
+        .write_stdin("abc\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let normal = lolr_with_config_home(config_home.path())
+        .arg("--no-compact")
+        .write_stdin("abc\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert!(compact.len() < normal.len());
+    assert_eq!(compact.iter().filter(|byte| **byte == 0x1b).count(), 2);
+}
+
+#[test]
+fn continuous_keeps_color_position_across_files() {
+    let mut first = NamedTempFile::new().unwrap();
+    let mut second = NamedTempFile::new().unwrap();
+    first.write_all(b"A\n").unwrap();
+    second.write_all(b"A\n").unwrap();
+    let files = [
+        first.path().to_str().unwrap(),
+        second.path().to_str().unwrap(),
+    ];
+    let output = |extra: &[&str]| {
+        let mut command = lolr();
+        command.args(["--force", "--truecolor", "--seed", "1"]);
+        command.args(extra);
+        command.args(files);
+        String::from_utf8(command.assert().success().get_output().stdout.clone()).unwrap()
+    };
+    let restarted = output(&[]);
+    let split = restarted.len() / 2;
+    assert_eq!(&restarted[..split], &restarted[split..]);
+    let continuous = output(&["--continuous"]);
+    assert_eq!(&continuous[..split], &restarted[..split]);
+    assert_ne!(&continuous[split..], &restarted[split..]);
+
+    let config_home = tempfile::tempdir().unwrap();
+    write_config(
+        config_home.path(),
+        "force = true\ntruecolor = true\nseed = 1\ncontinuous = true\n",
+    );
+    let configured = String::from_utf8(
+        lolr_with_config_home(config_home.path())
+            .args(files)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .unwrap();
+    assert_eq!(configured, continuous);
+    let overridden = String::from_utf8(
+        lolr_with_config_home(config_home.path())
+            .arg("--no-continuous")
+            .args(files)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .unwrap();
+    assert_eq!(overridden, restarted);
+}
+
+#[test]
+fn named_palette_and_gradient_override_work() {
+    let config_home = tempfile::tempdir().unwrap();
+    write_config(config_home.path(), "force = true\ntruecolor = true\nfreq = 0.0\npalette = \"candy\"\n[palettes]\ncandy = [\"#ff0000\", \"#0000ff\"]\n");
+    lolr_with_config_home(config_home.path())
+        .write_stdin("A\n")
+        .assert()
+        .success()
+        .stdout("\x1b[38;2;127;0;127mA\x1b[39m\n");
+    lolr_with_config_home(config_home.path())
+        .args(["--gradient", "rainbow"])
+        .write_stdin("A\n")
+        .assert()
+        .success()
+        .stdout("\x1b[38;2;128;237;18mA\x1b[39m\n");
+    lolr_with_config_home(config_home.path())
+        .args(["--palette", "missing"])
+        .write_stdin("A\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown palette"));
+}
+
+#[test]
+fn no_color_is_overridden_by_configured_or_explicit_force() {
+    let config_home = tempfile::tempdir().unwrap();
+    write_config(config_home.path(), "force = false\n");
+    lolr_with_config_home(config_home.path())
+        .env("NO_COLOR", "1")
+        .write_stdin("A\n")
+        .assert()
+        .success()
+        .stdout("A\n");
+    write_config(config_home.path(), "force = true\n");
+    lolr_with_config_home(config_home.path())
+        .env("NO_COLOR", "1")
+        .write_stdin("A\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\x1b["));
+    lolr_with_config_home(config_home.path())
+        .env("NO_COLOR", "1")
+        .arg("--force")
+        .write_stdin("A\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\x1b["));
+}
+
+#[test]
+fn contrast_can_be_overridden_and_does_not_combine_with_invert() {
+    let config_home = tempfile::tempdir().unwrap();
+    write_config(
+        config_home.path(),
+        "force = true\ntruecolor = true\nfreq = 0.0\nbackground = \"light\"\n",
+    );
+    let adjusted = lolr_with_config_home(config_home.path())
+        .write_stdin("A\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let unadjusted = lolr_with_config_home(config_home.path())
+        .arg("--no-background")
+        .write_stdin("A\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_ne!(adjusted, unadjusted);
+    assert_eq!(unadjusted, b"\x1b[38;2;128;237;18mA\x1b[39m\n");
+    lolr_with_config_home(config_home.path())
+        .arg("--invert")
+        .write_stdin("A\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be combined"));
+}
+
+#[test]
+fn invalid_palette_is_rejected_with_its_name() {
+    let config_home = tempfile::tempdir().unwrap();
+    write_config(
+        config_home.path(),
+        "[palettes]\ncandy = [\"#bad\", \"#0000ff\"]\n",
+    );
+    lolr_with_config_home(config_home.path())
+        .write_stdin("A\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("palettes.candy"));
 }

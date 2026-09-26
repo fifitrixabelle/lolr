@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -6,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use lolr::Gradient;
+use lolr::{AnimationDirection, Background, Gradient, Palette};
 
 pub const DEFAULT_SPREAD: f64 = 3.0;
 pub const DEFAULT_FREQ: f64 = 0.1;
@@ -17,6 +18,8 @@ pub const DEFAULT_SPEED: f64 = 40.0;
 pub const DEFAULT_INVERT: bool = false;
 pub const DEFAULT_TRUECOLOR: bool = false;
 pub const DEFAULT_FORCE: bool = false;
+pub const DEFAULT_CONTINUOUS: bool = false;
+pub const DEFAULT_COMPACT: bool = false;
 
 const MAX_CONFIG_SIZE: u64 = 1024 * 1024;
 
@@ -33,6 +36,15 @@ pub struct Config {
     pub truecolor: bool,
     pub force: bool,
     pub gradient: Gradient,
+    pub continuous: bool,
+    pub compact: bool,
+    pub direction: AnimationDirection,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<Background>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub palette: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub palettes: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for Config {
@@ -48,6 +60,12 @@ impl Default for Config {
             truecolor: DEFAULT_TRUECOLOR,
             force: DEFAULT_FORCE,
             gradient: Gradient::default(),
+            continuous: DEFAULT_CONTINUOUS,
+            compact: DEFAULT_COMPACT,
+            direction: AnimationDirection::Forward,
+            background: None,
+            palette: None,
+            palettes: BTreeMap::new(),
         }
     }
 }
@@ -82,7 +100,18 @@ impl Config {
         if !path.exists() {
             create_default_config(path)?;
         }
+        Self::load(path)
+    }
 
+    pub fn load_if_exists(path: &Path) -> io::Result<Self> {
+        match fs::metadata(path) {
+            Ok(_) => Self::load(path),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(config_io_error("inspect", path, error)),
+        }
+    }
+
+    fn load(path: &Path) -> io::Result<Self> {
         let metadata =
             fs::metadata(path).map_err(|error| config_io_error("inspect", path, error))?;
         if !metadata.is_file() {
@@ -119,7 +148,46 @@ impl Config {
             return Err(invalid_value("duration", "must be >= 1", path));
         }
         validate_minimum(self.speed, "speed", path)?;
+        for (name, colors) in &self.palettes {
+            if name.is_empty()
+                || !name
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+            {
+                return Err(invalid_value(
+                    "palettes",
+                    "names must use letters, digits, '-' or '_'",
+                    path,
+                ));
+            }
+            Palette::from_hex(colors)
+                .map_err(|reason| invalid_value(&format!("palettes.{name}"), &reason, path))?;
+        }
+        if let Some(name) = &self.palette {
+            if !self.palettes.contains_key(name) {
+                return Err(invalid_value(
+                    "palette",
+                    "selected palette is not defined",
+                    path,
+                ));
+            }
+        }
         Ok(())
+    }
+
+    pub fn palette_named(&self, name: &str) -> io::Result<Palette> {
+        let colors = self.palettes.get(name).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unknown palette {name:?}; define it under [palettes] in the config file"),
+            )
+        })?;
+        Palette::from_hex(colors).map_err(|reason| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid palette {name:?}: {reason}"),
+            )
+        })
     }
 }
 

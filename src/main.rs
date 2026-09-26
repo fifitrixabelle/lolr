@@ -10,7 +10,10 @@ use crossterm::style::ResetColor;
 use crossterm::QueueableCommand;
 use rand::Rng;
 
-use lolr::{animate_until, render_line, AnimateOpts, Gradient, RenderOpts};
+use lolr::{
+    animate_reader_styled_until, render_line_styled, AnimateOpts, AnimationDirection, Background,
+    Gradient, RenderOpts, RenderStyle,
+};
 
 mod config;
 
@@ -95,9 +98,45 @@ struct Args {
     #[arg(short, long, default_value_t = Gradient::default())]
     gradient: Gradient,
 
+    /// Use a named palette from the config file
+    #[arg(long, value_name = "NAME", conflicts_with = "gradient")]
+    palette: Option<String>,
+
+    /// Adjust colors for a dark or light terminal background
+    #[arg(long, value_enum, conflicts_with_all = ["no_background", "invert"])]
+    background: Option<Background>,
+
+    /// Disable background contrast configured in the config file
+    #[arg(long)]
+    no_background: bool,
+
+    /// Reduce repeated ANSI color codes (output bytes differ from lolcat)
+    #[arg(long, conflicts_with = "no_compact")]
+    compact: bool,
+
+    /// Disable compact output configured in the config file
+    #[arg(long)]
+    no_compact: bool,
+
+    /// Animation direction
+    #[arg(long, value_enum, default_value = "forward")]
+    direction: AnimationDirection,
+
     /// List available gradient presets and exit
     #[arg(long)]
     list_gradients: bool,
+
+    /// Preview built-in gradients or one named palette and exit
+    #[arg(long, num_args = 0..=1, default_missing_value = "all", value_name = "NAME", conflicts_with = "files")]
+    preview: Option<String>,
+
+    /// Continue the gradient across input files
+    #[arg(long, conflicts_with = "no_continuous")]
+    continuous: bool,
+
+    /// Restart the gradient for each file
+    #[arg(long)]
+    no_continuous: bool,
 
     /// Print version
     #[arg(short = 'v', short_alias = 'V', long, action = ArgAction::Version)]
@@ -143,6 +182,10 @@ fn detect_truecolor() -> bool {
         .unwrap_or(false)
 }
 
+fn no_color_requested() -> bool {
+    std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
+}
+
 fn main() -> io::Result<()> {
     let matches = Args::command().get_matches();
     let mut args = Args::from_arg_matches(&matches).expect("arguments should be valid");
@@ -152,6 +195,79 @@ fn main() -> io::Result<()> {
         let mut stdout = stdout.lock();
         for gradient in Gradient::ALL {
             writeln!(stdout, "{}", gradient.as_str())?;
+        }
+        return Ok(());
+    }
+
+    if let Some(choice) = args.preview.as_deref() {
+        let stdout = io::stdout();
+        let is_tty = stdout.is_terminal();
+        let color = (is_tty || args.force)
+            && (!no_color_requested()
+                || matches.value_source("force") == Some(ValueSource::CommandLine));
+        let opts = RenderOpts {
+            gradient: Gradient::Rainbow,
+            spread: args.spread,
+            freq: args.freq,
+            truecolor: args.truecolor || (!args.no_truecolor && detect_truecolor()),
+            invert: args.invert,
+        };
+        let style = RenderStyle {
+            palette: None,
+            background: args.background,
+            compact: args.compact,
+        };
+        let mut stdout = stdout.lock();
+        let gradients: Vec<Gradient> = if choice == "all" {
+            Gradient::ALL.to_vec()
+        } else {
+            Gradient::from_name(choice).into_iter().collect()
+        };
+        for gradient in gradients {
+            let sample = format!(
+                "{:<10} The quick brown fox jumps over the lazy dog",
+                gradient.as_str()
+            );
+            if color {
+                writeln!(
+                    stdout,
+                    "{}",
+                    render_line_styled(
+                        &sample,
+                        1.0,
+                        &RenderOpts {
+                            gradient,
+                            ..opts.clone()
+                        },
+                        &style
+                    )
+                )?;
+            } else {
+                writeln!(stdout, "{sample}")?;
+            }
+        }
+        if choice != "all" && Gradient::from_name(choice).is_none() {
+            let config = if args.no_config {
+                Config::default()
+            } else {
+                let path = Config::resolve_path(args.config.as_deref())?;
+                Config::load_if_exists(&path)?
+            };
+            let palette = config.palette_named(choice)?;
+            let sample = format!("{choice:<10} The quick brown fox jumps over the lazy dog");
+            if color {
+                let style = RenderStyle {
+                    palette: Some(palette),
+                    ..style
+                };
+                writeln!(
+                    stdout,
+                    "{}",
+                    render_line_styled(&sample, 1.0, &opts, &style)
+                )?;
+            } else {
+                writeln!(stdout, "{sample}")?;
+            }
         }
         return Ok(());
     }
@@ -175,15 +291,34 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    if let Some(path) = config_path {
-        let config = Config::load_or_create(&path)?;
-        apply_config(&mut args, &matches, config);
+    let config = if let Some(path) = config_path {
+        Config::load_or_create(&path)?
+    } else {
+        Config::default()
+    };
+    apply_config(&mut args, &matches, &config);
+
+    if args.invert && args.background.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--background cannot be combined with --invert: contrast adjustment applies to foreground colors",
+        ));
     }
+
+    let style = RenderStyle {
+        palette: args
+            .palette
+            .as_deref()
+            .map(|name| config.palette_named(name))
+            .transpose()?,
+        background: args.background,
+        compact: args.compact,
+    };
 
     let stdout = io::stdout();
     let is_stdout_tty = stdout.is_terminal();
 
-    if !is_stdout_tty && !args.force {
+    if !args.force && (!is_stdout_tty || no_color_requested()) {
         let mut stdout = stdout.lock();
         return with_inputs(&args.files, |input| {
             io::copy(input, &mut stdout)?;
@@ -217,26 +352,38 @@ fn main() -> io::Result<()> {
             invert: render_opts.invert,
         };
         let mut interrupt_handler_installed = false;
+        let mut line_offset = seed;
         return with_inputs(&args.files, |input| {
             if INTERRUPTED.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            let mut text = String::new();
-            input.read_to_string(&mut text)?;
             if !interrupt_handler_installed {
                 ctrlc::set_handler(|| INTERRUPTED.store(true, Ordering::Relaxed))
                     .map_err(io::Error::other)?;
                 interrupt_handler_installed = true;
             }
-            animate_until(&text, &animate_opts, || INTERRUPTED.load(Ordering::Relaxed))
+            if !args.continuous {
+                line_offset = seed;
+            }
+            animate_reader_styled_until(
+                input,
+                &animate_opts,
+                &style,
+                args.direction,
+                &mut line_offset,
+                || INTERRUPTED.load(Ordering::Relaxed),
+            )
         });
     }
 
     let mut stdout = stdout.lock();
+    let mut offset = seed;
     let render_result = with_inputs(&args.files, |input| {
         // Ruby lolcat restarts the seeded gradient for each input source.
-        let mut offset = seed;
-        render_stream(input, &mut stdout, &render_opts, &mut offset)
+        if !args.continuous {
+            offset = seed;
+        }
+        render_stream(input, &mut stdout, &render_opts, &style, &mut offset)
     });
     let cleanup_result = if is_stdout_tty {
         stdout
@@ -249,7 +396,7 @@ fn main() -> io::Result<()> {
     render_result.and(cleanup_result)
 }
 
-fn apply_config(args: &mut Args, matches: &clap::ArgMatches, config: Config) {
+fn apply_config(args: &mut Args, matches: &clap::ArgMatches, config: &Config) {
     let from_cli = |name| matches.value_source(name) == Some(ValueSource::CommandLine);
 
     if !from_cli("spread") {
@@ -290,6 +437,27 @@ fn apply_config(args: &mut Args, matches: &clap::ArgMatches, config: Config) {
     if !from_cli("gradient") {
         args.gradient = config.gradient;
     }
+    if !from_cli("palette") && !from_cli("gradient") {
+        args.palette = config.palette.clone();
+    }
+    if from_cli("no_background") {
+        args.background = None;
+    } else if !from_cli("background") {
+        args.background = config.background;
+    }
+    if !from_cli("direction") {
+        args.direction = config.direction;
+    }
+    if from_cli("no_continuous") {
+        args.continuous = false;
+    } else if !from_cli("continuous") {
+        args.continuous = config.continuous;
+    }
+    if from_cli("no_compact") {
+        args.compact = false;
+    } else if !from_cli("compact") {
+        args.compact = config.compact;
+    }
 }
 
 fn with_inputs<F>(files: &[String], mut process: F) -> io::Result<()>
@@ -316,6 +484,7 @@ fn render_stream(
     input: &mut dyn BufRead,
     output: &mut dyn Write,
     opts: &RenderOpts,
+    style: &RenderStyle,
     offset: &mut f64,
 ) -> io::Result<()> {
     let mut line = String::new();
@@ -325,6 +494,6 @@ fn render_stream(
             return Ok(());
         }
         *offset += 1.0;
-        output.write_all(render_line(&line, *offset, opts).as_bytes())?;
+        output.write_all(render_line_styled(&line, *offset, opts, style).as_bytes())?;
     }
 }

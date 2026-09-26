@@ -97,6 +97,55 @@ impl fmt::Display for ParseGradientError {
 
 impl std::error::Error for ParseGradientError {}
 
+/// A user-defined gradient with evenly spaced RGB color stops.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Palette {
+    colors: Vec<Rgb>,
+}
+
+impl Palette {
+    pub fn new(colors: Vec<Rgb>) -> Result<Self, &'static str> {
+        if !(2..=16).contains(&colors.len()) {
+            return Err("a palette needs 2 to 16 colors");
+        }
+        Ok(Self { colors })
+    }
+
+    pub fn from_hex(colors: &[String]) -> Result<Self, String> {
+        let parsed = colors
+            .iter()
+            .map(|hex| {
+                let digits = hex.strip_prefix('#').ok_or("expected #RRGGBB")?;
+                if digits.len() != 6 {
+                    return Err("expected #RRGGBB");
+                }
+                let value = u32::from_str_radix(digits, 16).map_err(|_| "expected #RRGGBB")?;
+                Ok(Rgb {
+                    r: (value >> 16) as u8,
+                    g: (value >> 8) as u8,
+                    b: value as u8,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(str::to_owned)?;
+        Self::new(parsed).map_err(str::to_owned)
+    }
+
+    pub fn color(&self, freq: f64, position: f64) -> Rgb {
+        let t = ((freq * position).sin() + 1.0) / 2.0;
+        let scaled = t * (self.colors.len() - 1) as f64;
+        let first = (scaled as usize).min(self.colors.len() - 2);
+        let fraction = (scaled - first as f64).clamp(0.0, 1.0);
+        let from = self.colors[first];
+        let to = self.colors[first + 1];
+        Rgb {
+            r: (from.r as f64 + (to.r as f64 - from.r as f64) * fraction) as u8,
+            g: (from.g as f64 + (to.g as f64 - from.g as f64) * fraction) as u8,
+            b: (from.b as f64 + (to.b as f64 - from.b as f64) * fraction) as u8,
+        }
+    }
+}
+
 fn lerp_color(colors: &[(f64, Rgb)], t: f64) -> Rgb {
     let t = t.rem_euclid(1.0);
     for window in colors.windows(2) {
@@ -438,5 +487,20 @@ mod tests {
         for gradient in Gradient::ALL {
             assert_eq!(Gradient::from_name(gradient.as_str()), Some(gradient));
         }
+    }
+
+    #[test]
+    fn custom_palette_interpolates_and_rejects_invalid_stops() {
+        let palette = Palette::from_hex(&["#ff0000".into(), "#0000ff".into()]).unwrap();
+        assert_eq!(
+            palette.color(0.0, 10.0),
+            Rgb {
+                r: 127,
+                g: 0,
+                b: 127
+            }
+        );
+        assert!(Palette::from_hex(&["#ff0000".into()]).is_err());
+        assert!(Palette::from_hex(&["not-a-color".into(), "#0000ff".into()]).is_err());
     }
 }

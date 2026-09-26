@@ -17,6 +17,8 @@ rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 toml = "0.8"
+unicode-width = "0.2"
+unicode-segmentation = "1"
 
 [lib]
 name = "lolr"

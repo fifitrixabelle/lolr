@@ -33,12 +33,54 @@ cat README.md | lolr --gradient fire
 # Show available gradients
 lolr --list-gradients
 
+# Preview built-in gradients
+lolr --preview
+
+# Preview one configured palette
+lolr --preview candy
+
 # Multiple files
 lolr file1.txt file2.txt
 
+# One continuous color wave across files
+lolr --continuous file1.txt file2.txt
+
+# Named palette from the config file
+lolr --palette candy file.txt
+
 # Custom animation speed
 echo "Animated text" | lolr -a --speed 30 --duration 20
+
+# Reverse the animation and adjust for a light terminal theme
+echo "Animated text" | lolr -a --direction reverse --background light
+
+# Keep colors when redirecting output
+echo "Hello, world!" | lolr --force > colored.txt
+
+# Use fewer ANSI codes when saving colored output
+lolr --force --compact file.txt > colored.txt
 ```
+
+lolr colors output when stdout is a terminal. When stdout is redirected or
+captured, it copies input unchanged unless `--force` is set. Animation needs a
+terminal; `-a --force` colors redirected output without animation.
+Set `NO_COLOR` to a nonempty value to suppress color by default; `--force` or
+`force = true` in the config file overrides it on normal runs. `--preview`
+bypasses config, so use `--preview --force` to color captured previews.
+
+Animation processes input one line at a time. Lines too wide to redraw safely
+are colored once, without animation. It checks terminal width between frames
+and schedules frames against elapsed time.
+
+Color positions follow displayed grapheme width for wide text, combining marks,
+and joined emoji. `--compact` reuses color codes and resets at control
+boundaries. It keeps the same visible colors but changes the exact ANSI bytes.
+
+## Performance baseline
+
+Run `cargo run --release --example bench_render` to measure the renderer on
+ASCII and on a repeatable mix of text, ANSI styling, tabs, and Unicode. Compare
+results on the same machine and Rust toolchain before and after changes.
 
 ## Options
 
@@ -55,7 +97,16 @@ echo "Animated text" | lolr -a --speed 30 --duration 20
 | `-d` | `--duration` | Animation frames | 6 |
 | `-s` | `--speed` | Animation FPS | 40 |
 | `-g` | `--gradient` | Gradient preset | rainbow |
+| | `--palette NAME` | Named palette from config | none |
+| | `--background dark\|light` | Adjust contrast for an assumed background | off |
+| | `--no-background` | Override configured contrast | off |
+| | `--direction forward\|reverse` | Animation direction | forward |
 | | `--list-gradients` | List gradient presets and exit | |
+| | `--preview [NAME]` | Preview built-ins or one named palette and exit | |
+| | `--compact` | Reuse ANSI color codes | off |
+| | `--no-compact` | Override configured compact mode | off |
+| | `--continuous` | Keep color position across files | off |
+| | `--no-continuous` | Override configured continuous mode | off |
 | `-i` | `--invert` | Swap foreground/background | off |
 | | `--no-invert` | Override configured inversion | off |
 | `-t` | `--truecolor` | Force 24-bit color | auto |
@@ -87,11 +138,12 @@ the path in this order:
 4. `~/.config/lolr/config.toml`
 
 Run `lolr --print-config-path` to see the resolved path. `--help`, `--version`,
-`--list-gradients`, and `--print-config-path` do not create the file. Use
+`--list-gradients`, `--preview`, and `--print-config-path` do not create the file. Use
 `--no-config` to bypass loading and creation, including to recover from a broken
 config.
 
-The generated file contains every configurable default:
+The generated file contains the active defaults. Optional `palette` and
+`background` settings are omitted until you add them:
 
 ```toml
 spread = 3.0
@@ -104,10 +156,31 @@ invert = false
 truecolor = false
 force = false
 gradient = "rainbow"
+continuous = false
+compact = false
+direction = "forward"
 ```
 
+Add named palettes under `[palettes]`. Each palette needs 2 to 16 `#RRGGBB`
+colors. Select one with `--palette NAME`, or set `palette = "NAME"` at the top
+level. `--gradient` overrides a configured palette.
+
+```toml
+palette = "candy"
+
+[palettes]
+candy = ["#ff6b9d", "#b967ff", "#65d6ff"]
+```
+
+Set `background = "dark"` or `"light"` to adjust palette colors toward a
+4.5:1 contrast ratio against assumed black or white. This is an explicit
+approximation before 256-color conversion; lolr does not query your terminal
+theme. Contrast adjustment applies to foreground colors and cannot be combined
+with `--invert`.
+
 Command-line options take precedence over config values. The `--no-animate`,
-`--no-invert`, `--no-truecolor`, and `--no-force` flags explicitly override
+`--no-invert`, `--no-truecolor`, `--no-force`, `--no-background`,
+`--no-continuous`, and `--no-compact` flags explicitly override
 configured `true` values. Missing config keys retain their built-in defaults.
 Unknown keys, invalid types, invalid ranges, and config files larger than 1 MiB
 are rejected with the path and cause in the error. Existing files are never
