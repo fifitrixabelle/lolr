@@ -8,7 +8,6 @@ use clap::{ArgAction, CommandFactory, FromArgMatches, Parser};
 use crossterm::cursor::Show;
 use crossterm::style::ResetColor;
 use crossterm::QueueableCommand;
-use rand::Rng;
 
 use lolr::{
     animate_reader_styled_until, render_line_styled, AnimateOpts, AnimationDirection, Background,
@@ -327,7 +326,7 @@ fn main() -> io::Result<()> {
     }
 
     let seed = if args.seed == 0 {
-        rand::thread_rng().gen_range(0..256) as f64
+        rand::random_range(0..256) as f64
     } else {
         args.seed as f64
     };

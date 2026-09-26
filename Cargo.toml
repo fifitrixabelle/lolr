@@ -11,12 +11,12 @@ categories = ["command-line-utilities"]
 [dependencies]
 anstyle-parse = "1"
 clap = { version = "4", features = ["derive"] }
-crossterm = "0.27"
+crossterm = "0.29"
 ctrlc = "3"
-rand = "0.8"
+rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
-toml = "0.8"
+toml = "1.1"
 unicode-width = "0.2"
 unicode-segmentation = "1"
 
