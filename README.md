@@ -64,6 +64,8 @@ lolr --force --compact file.txt > colored.txt
 lolr colors output when stdout is a terminal. When stdout is redirected or
 captured, it copies input unchanged unless `--force` is set. Animation needs a
 terminal; `-a --force` colors redirected output without animation.
+When coloring, lines containing invalid UTF-8 bytes pass through unchanged;
+subsequent valid lines are still colored.
 Set `NO_COLOR` to a nonempty value to suppress color by default; `--force` or
 `force = true` in the config file overrides it on normal runs. `--preview`
 bypasses config, so use `--preview --force` to color captured previews.

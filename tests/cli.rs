@@ -304,6 +304,21 @@ fn no_color_mode_is_byte_transparent() {
 }
 
 #[test]
+fn forced_color_passes_invalid_utf8_lines_through_and_continues() {
+    let input = b"A\n\xff\xfe\nB\n".to_vec();
+    let output = lolr()
+        .args(["--force", "--truecolor", "--seed", "1"])
+        .write_stdin(input)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert!(output.starts_with(b"\x1b[38;2;153;223;7mA\x1b[39m\n\xff\xfe\n"));
+    assert!(output.ends_with(b"B\x1b[39m\n"));
+}
+
+#[test]
 fn deterministic_truecolor_output_matches_ruby_lolcat() {
     lolr()
         .args(["--force", "--truecolor", "--seed", "1"])

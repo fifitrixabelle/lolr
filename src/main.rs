@@ -486,13 +486,18 @@ fn render_stream(
     style: &RenderStyle,
     offset: &mut f64,
 ) -> io::Result<()> {
-    let mut line = String::new();
+    let mut line = Vec::new();
     loop {
         line.clear();
-        if input.read_line(&mut line)? == 0 {
+        if input.read_until(b'\n', &mut line)? == 0 {
             return Ok(());
         }
         *offset += 1.0;
-        output.write_all(render_line_styled(&line, *offset, opts, style).as_bytes())?;
+        match std::str::from_utf8(&line) {
+            Ok(text) => {
+                output.write_all(render_line_styled(text, *offset, opts, style).as_bytes())?
+            }
+            Err(_) => output.write_all(&line)?,
+        }
     }
 }

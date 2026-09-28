@@ -157,14 +157,20 @@ where
 
     stdout.queue(Hide)?;
     let animation_result = (|| {
-        let mut input_line = String::new();
+        let mut input_line = Vec::new();
         loop {
             input_line.clear();
-            if input.read_line(&mut input_line)? == 0 {
+            if input.read_until(b'\n', &mut input_line)? == 0 {
                 break;
             }
-            let had_newline = input_line.ends_with('\n');
-            let line = input_line.strip_suffix('\n').unwrap_or(&input_line);
+            let Ok(input_text) = std::str::from_utf8(&input_line) else {
+                *line_offset += 1.0;
+                stdout.write_all(&input_line)?;
+                stdout.flush()?;
+                continue;
+            };
+            let had_newline = input_text.ends_with('\n');
+            let line = input_text.strip_suffix('\n').unwrap_or(input_text);
             *line_offset += 1.0;
             if !line.is_empty() {
                 if can_redraw(line, columns()) {
@@ -368,6 +374,28 @@ mod tests {
             Some(80),
         )
         .unwrap();
+        assert!(output.ends_with(b"\x1b[0m\x1b[?25h"));
+    }
+
+    #[test]
+    fn invalid_utf8_line_is_written_once_and_animation_continues() {
+        let opts = AnimateOpts {
+            duration: 2,
+            ..AnimateOpts::default()
+        };
+        let mut output = Vec::new();
+        animate_default(
+            &mut output,
+            &mut Cursor::new(b"\xff\nA\n"),
+            &opts,
+            |_| {},
+            || false,
+            Some(80),
+        )
+        .unwrap();
+        assert!(output.windows(2).any(|bytes| bytes == b"\xff\n"));
+        assert_eq!(output.iter().filter(|&&byte| byte == 0xff).count(), 1);
+        assert!(output.contains(&b'A'));
         assert!(output.ends_with(b"\x1b[0m\x1b[?25h"));
     }
 
