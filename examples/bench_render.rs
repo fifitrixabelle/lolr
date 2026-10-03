@@ -12,34 +12,38 @@ fn main() {
     const ASCII: &str = "A colorful line with ordinary ASCII text and a few more words.\n";
 
     for (name, sample) in [("ascii", ASCII), ("mixed", MIXED)] {
-        for compact in [false, true] {
-            for gradient in [Gradient::Rainbow, Gradient::Viridis] {
-                let opts = RenderOpts {
-                    gradient,
-                    ..RenderOpts::default()
-                };
-                let style = RenderStyle {
-                    compact,
-                    ..RenderStyle::default()
-                };
-                let start = Instant::now();
-                let mut output_bytes = 0;
-                for line in 0..ITERATIONS {
-                    output_bytes += black_box(render_line_styled(
-                        black_box(sample),
-                        line as f64,
-                        black_box(&opts),
-                        black_box(&style),
-                    ))
-                    .len();
+        for truecolor in [false, true] {
+            for compact in [false, true] {
+                for gradient in [Gradient::Rainbow, Gradient::Viridis] {
+                    let opts = RenderOpts {
+                        gradient,
+                        truecolor,
+                        ..RenderOpts::default()
+                    };
+                    let style = RenderStyle {
+                        compact,
+                        ..RenderStyle::default()
+                    };
+                    let start = Instant::now();
+                    let mut output_bytes = 0;
+                    for line in 0..ITERATIONS {
+                        output_bytes += black_box(render_line_styled(
+                            black_box(sample),
+                            line as f64,
+                            black_box(&opts),
+                            black_box(&style),
+                        ))
+                        .len();
+                    }
+                    let elapsed = start.elapsed();
+                    let input_mib = (sample.len() * ITERATIONS) as f64 / 1_048_576.0;
+                    println!(
+                        "{name} {gradient} truecolor={truecolor} compact={compact}: \
+                         {elapsed:.2?}, {:.1} MiB/s input, {:.1} MiB output",
+                        input_mib / elapsed.as_secs_f64(),
+                        output_bytes as f64 / 1_048_576.0
+                    );
                 }
-                let elapsed = start.elapsed();
-                let input_mib = (sample.len() * ITERATIONS) as f64 / 1_048_576.0;
-                println!(
-                "{name} {gradient} compact={compact}: {elapsed:.2?}, {:.1} MiB/s input, {:.1} MiB output",
-                input_mib / elapsed.as_secs_f64(),
-                output_bytes as f64 / 1_048_576.0
-            );
             }
         }
     }

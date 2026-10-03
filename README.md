@@ -81,8 +81,9 @@ boundaries. It keeps the same visible colors but changes the exact ANSI bytes.
 ## Performance baseline
 
 Run `cargo run --release --example bench_render` to measure the renderer on
-ASCII and on a repeatable mix of text, ANSI styling, tabs, and Unicode. Compare
-results on the same machine and Rust toolchain before and after changes.
+ASCII and on a repeatable mix of text, ANSI styling, tabs, and Unicode, in both
+truecolor and 256-color modes. Compare results on the same machine and Rust
+toolchain before and after changes.
 
 ## Options
 

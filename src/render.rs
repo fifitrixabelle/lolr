@@ -3,7 +3,6 @@ use crate::gradient::{gradient_color, Gradient, Palette};
 use anstyle_parse::{Params, Parser, Perform};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -99,19 +98,39 @@ fn ensure_contrast(rgb: Rgb, background: Background) -> Rgb {
     }
 }
 
-fn write_color(output: &mut Vec<u8>, rgb: Rgb, truecolor: bool, invert: bool) {
-    if invert {
-        if truecolor {
-            write!(output, "\x1b[48;2;{};{};{}m", rgb.r, rgb.g, rgb.b)
-        } else {
-            write!(output, "\x1b[48;5;{}m", rgb_to_256(rgb))
-        }
-    } else if truecolor {
-        write!(output, "\x1b[38;2;{};{};{}m", rgb.r, rgb.g, rgb.b)
+fn write_decimal(output: &mut Vec<u8>, value: u8) {
+    let mut digits = [b'0'; 3];
+    digits[2] += value % 10;
+    let start = if value >= 100 {
+        digits[0] += value / 100;
+        digits[1] += value / 10 % 10;
+        0
+    } else if value >= 10 {
+        digits[1] += value / 10;
+        1
     } else {
-        write!(output, "\x1b[38;5;{}m", rgb_to_256(rgb))
+        2
+    };
+    output.extend_from_slice(&digits[start..]);
+}
+
+fn write_color(output: &mut Vec<u8>, rgb: Rgb, truecolor: bool, invert: bool) {
+    output.extend_from_slice(match (truecolor, invert) {
+        (true, false) => b"\x1b[38;2;",
+        (true, true) => b"\x1b[48;2;",
+        (false, false) => b"\x1b[38;5;",
+        (false, true) => b"\x1b[48;5;",
+    });
+    if truecolor {
+        write_decimal(output, rgb.r);
+        output.push(b';');
+        write_decimal(output, rgb.g);
+        output.push(b';');
+        write_decimal(output, rgb.b);
+    } else {
+        write_decimal(output, rgb_to_256(rgb));
     }
-    .expect("writing to a Vec must succeed");
+    output.push(b'm');
 }
 
 struct Colorize<'a> {
@@ -132,7 +151,52 @@ enum OutputColor {
     Ansi256(u8),
 }
 
-impl Colorize<'_> {
+impl<'a> Colorize<'a> {
+    fn new(line: &str, offset: f64, opts: &'a RenderOpts, style: &'a RenderStyle) -> Self {
+        Self {
+            output: Vec::with_capacity(line.len()),
+            pending: Vec::new(),
+            text_run: Vec::new(),
+            offset,
+            col: 0,
+            opts,
+            style,
+            last_color: None,
+            fast_ascii: line.is_ascii(),
+        }
+    }
+
+    fn render_parsed(&mut self, line: &str) {
+        let mut parser: Parser = Parser::default();
+        for &byte in line.as_bytes() {
+            // Ruby lolcat expands every tab to eight spaces before parsing ANSI.
+            let bytes: &[u8] = if byte == b'\t' { b"        " } else { &[byte] };
+            for &expanded in bytes {
+                self.pending.push(expanded);
+                parser.advance(self, expanded);
+            }
+        }
+        self.flush_control();
+    }
+
+    fn render_plain_ascii(&mut self, line: &str) {
+        for &byte in line.as_bytes() {
+            match byte {
+                b'\t' => {
+                    for _ in 0..8 {
+                        self.emit_unit(b" ", 1);
+                    }
+                }
+                b'\r' | b'\n' => {
+                    self.reset_compact();
+                    self.output.push(byte);
+                }
+                _ => self.emit_unit(&[byte], 1),
+            }
+        }
+        self.reset_compact();
+    }
+
     fn flush_control(&mut self) {
         self.flush_text();
         self.reset_compact();
@@ -335,28 +399,16 @@ pub fn render_line_styled(
     opts: &RenderOpts,
     style: &RenderStyle,
 ) -> String {
-    let mut parser: Parser = Parser::default();
-    let mut performer = Colorize {
-        output: Vec::with_capacity(line.len()),
-        pending: Vec::new(),
-        text_run: Vec::new(),
-        offset,
-        col: 0,
-        opts,
-        style,
-        last_color: None,
-        fast_ascii: line.is_ascii(),
-    };
-
-    for &byte in line.as_bytes() {
-        // Ruby lolcat expands every tab to eight spaces before parsing ANSI.
-        let bytes: &[u8] = if byte == b'\t' { b"        " } else { &[byte] };
-        for &expanded in bytes {
-            performer.pending.push(expanded);
-            parser.advance(&mut performer, expanded);
-        }
+    let mut performer = Colorize::new(line, offset, opts, style);
+    // Only bypass ANSI parsing for printable ASCII and the controls handled above.
+    if line
+        .bytes()
+        .all(|byte| matches!(byte, b' '..=b'~' | b'\t' | b'\r' | b'\n'))
+    {
+        performer.render_plain_ascii(line);
+    } else {
+        performer.render_parsed(line);
     }
-    performer.flush_control();
 
     String::from_utf8(performer.output).expect("rendering valid UTF-8 must produce valid UTF-8")
 }
@@ -364,6 +416,89 @@ pub fn render_line_styled(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ascii_fast_path_matches_parser_output() {
+        let printable: String = (b' '..=b'~').map(char::from).collect();
+        let all_ascii: String = (0..=127u8).map(char::from).collect();
+        let palette = Palette::new(vec![
+            Rgb { r: 0, g: 9, b: 99 },
+            Rgb {
+                r: 100,
+                g: 255,
+                b: 42,
+            },
+        ])
+        .unwrap();
+        for gradient in Gradient::ALL {
+            for truecolor in [false, true] {
+                for invert in [false, true] {
+                    for compact in [false, true] {
+                        for background in [None, Some(Background::Dark), Some(Background::Light)] {
+                            for palette in [None, Some(palette.clone())] {
+                                let opts = RenderOpts {
+                                    gradient,
+                                    truecolor,
+                                    invert,
+                                    ..RenderOpts::default()
+                                };
+                                let style = RenderStyle {
+                                    compact,
+                                    background,
+                                    palette,
+                                };
+                                for input in [
+                                    "",
+                                    printable.as_str(),
+                                    all_ascii.as_str(),
+                                    "\tA\t\r\nB\n\t",
+                                    "\r\n",
+                                    "abc",
+                                    "a\x1b[1mb\x1b[0m",
+                                    "a\x1b[",
+                                    "café 界 👩‍💻 e\u{301}\n",
+                                ] {
+                                    let mut reference = Colorize::new(input, 42.5, &opts, &style);
+                                    reference.render_parsed(input);
+                                    assert_eq!(
+                                        render_line_styled(input, 42.5, &opts, &style).as_bytes(),
+                                        reference.output,
+                                        "{input:?}, {opts:?}, {style:?}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn color_encoding_matches_formatted_ansi_for_every_channel_value() {
+        let mut output = Vec::new();
+        for value in 0..=u8::MAX {
+            // Exercise every value in each channel, including decimal boundaries.
+            let rgb = Rgb {
+                r: value,
+                g: value.wrapping_add(85),
+                b: value.wrapping_add(170),
+            };
+            for truecolor in [false, true] {
+                for invert in [false, true] {
+                    output.clear();
+                    write_color(&mut output, rgb, truecolor, invert);
+                    let target = if invert { 48 } else { 38 };
+                    let expected = if truecolor {
+                        format!("\x1b[{target};2;{};{};{}m", rgb.r, rgb.g, rgb.b)
+                    } else {
+                        format!("\x1b[{target};5;{}m", rgb_to_256(rgb))
+                    };
+                    assert_eq!(output, expected.as_bytes());
+                }
+            }
+        }
+    }
 
     #[test]
     fn render_produces_ansi_codes() {

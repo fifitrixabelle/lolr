@@ -22,20 +22,14 @@ pub fn rgb_to_256(color: Rgb) -> u8 {
     // Match the Paint gem used by Ruby lolcat: use the grayscale ramp when
     // all three components fall in the same 42.5-wide band, otherwise use
     // the xterm 6x6x6 color cube.
-    let components = [color.r as f64, color.g as f64, color.b as f64];
-    let mut separator = 42.5;
-    loop {
-        if components.iter().any(|component| *component < separator) {
-            if components.iter().all(|component| *component < separator) {
-                let average = components.iter().sum::<f64>() / 33.0;
-                return 232 + average.round() as u8;
-            }
-            break;
-        }
-        separator += 42.5;
+    let components = [color.r as u16, color.g as u16, color.b as u16];
+    let [r_band, g_band, b_band] = components.map(|component| component * 2 / 85);
+    if r_band == g_band && g_band == b_band {
+        // The sum is integral and 33 is odd, so adding 16 rounds to nearest.
+        return 232 + ((components.iter().sum::<u16>() + 16) / 33) as u8;
     }
 
-    let [r, g, b] = components.map(|component| (6.0 * component / 256.0) as u8);
+    let [r, g, b] = components.map(|component| (6 * component / 256) as u8);
 
     16 + 36 * r + 6 * g + b
 }
@@ -43,6 +37,40 @@ pub fn rgb_to_256(color: Rgb) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integer_conversion_matches_float_reference_at_every_channel_value() {
+        fn reference(color: Rgb) -> u8 {
+            let components = [color.r as f64, color.g as f64, color.b as f64];
+            let mut separator = 42.5;
+            loop {
+                if components.iter().any(|component| *component < separator) {
+                    if components.iter().all(|component| *component < separator) {
+                        return 232 + (components.iter().sum::<f64>() / 33.0).round() as u8;
+                    }
+                    break;
+                }
+                separator += 42.5;
+            }
+            let [r, g, b] = components.map(|component| (6.0 * component / 256.0) as u8);
+            16 + 36 * r + 6 * g + b
+        }
+
+        // Straddle every grayscale band and cube boundary, including 255's band.
+        let boundaries = [
+            0, 42, 43, 84, 85, 86, 127, 128, 169, 170, 171, 212, 213, 214, 254, 255,
+        ];
+        for value in 0..=255 {
+            for a in boundaries {
+                for b in boundaries {
+                    for [r, g, b] in [[value, a, b], [a, value, b], [a, b, value]] {
+                        let rgb = Rgb { r, g, b };
+                        assert_eq!(rgb_to_256(rgb), reference(rgb), "{rgb:?}");
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn rainbow_at_zero_offset() {
