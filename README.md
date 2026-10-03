@@ -71,8 +71,9 @@ Set `NO_COLOR` to a nonempty value to suppress color by default; `--force` or
 bypasses config, so use `--preview --force` to color captured previews.
 
 Animation processes input one line at a time. Lines too wide to redraw safely
-are colored once, without animation. It checks terminal width between frames
-and schedules frames against elapsed time.
+are colored once, without animation. For repeated frames it prepares ANSI
+controls and grapheme widths once per line. It checks terminal width between
+frames and schedules frames against elapsed time.
 
 Color positions follow displayed grapheme width for wide text, combining marks,
 and joined emoji. `--compact` reuses color codes and resets at control
@@ -82,8 +83,14 @@ boundaries. It keeps the same visible colors but changes the exact ANSI bytes.
 
 Run `cargo run --release --example bench_render` to measure the renderer on
 ASCII and on a repeatable mix of text, ANSI styling, tabs, and Unicode, in both
-truecolor and 256-color modes. Compare results on the same machine and Rust
-toolchain before and after changes.
+truecolor and 256-color modes, including longer mixed lines, with fresh buffers,
+reused output, and reused parser scratch buffers. It also measures dark and
+light background contrast adjustment.
+
+Run `cargo run --release --example bench_animation` to compare repeated rendering
+with preparing each line once, including preparation cost, for 1, 2, 6, and 12
+frames. This measures rendering work without animation sleeps or terminal I/O.
+Compare results on the same machine and Rust toolchain before and after changes.
 
 ## Options
 
@@ -207,6 +214,37 @@ let opts = RenderOpts {
 
 let colored = render_line("Hello, world!", 0.0, &opts);
 println!("{}", colored);
+```
+
+For streaming rendering, `Renderer::render_into` reuses ANSI/Unicode scratch
+buffers as well as the supplied output buffer. Each call replaces the output
+and starts fresh parsing and color state:
+
+```rust
+use lolr::{Renderer, RenderOpts, RenderStyle};
+
+let opts = RenderOpts::default();
+let style = RenderStyle::default();
+let mut renderer = Renderer::default();
+let mut output = Vec::new();
+for (offset, line) in ["Hello", "world!"].iter().enumerate() {
+    renderer.render_into(line, offset as f64, &opts, &style, &mut output);
+    // Write output to your terminal or another destination here.
+}
+```
+
+`render_line_styled_into` provides output-buffer reuse without retaining parser
+scratch buffers. For repeated rendering of the same text, `PreparedLine` also
+caches parsed controls and grapheme widths; colors are recomputed for each offset:
+
+```rust
+use lolr::{PreparedLine, RenderOpts, RenderStyle};
+
+let line = PreparedLine::new("Hello 界 👩‍💻");
+let mut output = Vec::new();
+for frame in 0..6 {
+    line.render_into(frame as f64, &RenderOpts::default(), &RenderStyle::default(), &mut output);
+}
 ```
 
 ### Animation

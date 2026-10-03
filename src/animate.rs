@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::gradient::Gradient;
 use crate::render::{
-    filter_replayed_animation_controls, render_line_styled, RenderOpts, RenderStyle,
+    filter_replayed_animation_controls, PreparedLine, RenderOpts, RenderStyle, Renderer,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize, Serialize)]
@@ -105,10 +105,7 @@ impl Perform for LineWidth {
     }
 }
 
-fn can_redraw(line: &str, terminal_columns: Option<usize>) -> bool {
-    let Some(terminal_columns) = terminal_columns else {
-        return false;
-    };
+fn line_redraw_width(line: &str) -> Option<usize> {
     let mut parser: Parser = Parser::default();
     let mut width = LineWidth {
         columns: 0,
@@ -119,7 +116,14 @@ fn can_redraw(line: &str, terminal_columns: Option<usize>) -> bool {
         parser.advance(&mut width, byte);
     }
     width.flush_printable();
-    !width.unsafe_control && width.columns < terminal_columns
+    (!width.unsafe_control).then_some(width.columns)
+}
+
+#[cfg(test)]
+fn can_redraw(line: &str, terminal_columns: Option<usize>) -> bool {
+    terminal_columns
+        .zip(line_redraw_width(line))
+        .is_some_and(|(columns, width)| width < columns)
 }
 
 struct AnimationRun<'a> {
@@ -158,6 +162,8 @@ where
     stdout.queue(Hide)?;
     let animation_result = (|| {
         let mut input_line = Vec::new();
+        let mut rendered = Vec::new();
+        let mut renderer = Renderer::default();
         loop {
             input_line.clear();
             if input.read_until(b'\n', &mut input_line)? == 0 {
@@ -173,9 +179,13 @@ where
             let line = input_text.strip_suffix('\n').unwrap_or(input_text);
             *line_offset += 1.0;
             if !line.is_empty() {
-                if can_redraw(line, columns()) {
+                let redraw_width = columns()
+                    .and_then(|columns| line_redraw_width(line).filter(|&width| width < columns));
+                if let Some(redraw_width) = redraw_width {
                     stdout.queue(SavePosition)?;
                     let replay_line = filter_replayed_animation_controls(line);
+                    let prepared = (opts.duration > 1).then(|| PreparedLine::new(&replay_line));
+                    let same_replay = line == replay_line;
                     let started = Instant::now();
                     for frame in 1..=opts.duration {
                         if cancelled() {
@@ -186,7 +196,7 @@ where
                             if let Some(deadline) = started.checked_add(elapsed) {
                                 sleep(deadline.saturating_duration_since(Instant::now()));
                             }
-                            if !can_redraw(line, columns()) {
+                            if columns().is_none_or(|columns| redraw_width >= columns) {
                                 break;
                             }
                         }
@@ -199,19 +209,31 @@ where
                             AnimationDirection::Reverse => *line_offset - phase,
                         };
                         let frame_line = if frame == 1 { line } else { &replay_line };
-                        write!(
-                            stdout,
-                            "{}",
-                            render_line_styled(frame_line, offset, &render_opts, run.style)
-                        )?;
+                        if let Some(prepared) =
+                            prepared.as_ref().filter(|_| frame > 1 || same_replay)
+                        {
+                            prepared.render_into(offset, &render_opts, run.style, &mut rendered);
+                        } else {
+                            renderer.render_into(
+                                frame_line,
+                                offset,
+                                &render_opts,
+                                run.style,
+                                &mut rendered,
+                            );
+                        }
+                        stdout.write_all(&rendered)?;
                         stdout.flush()?;
                     }
                 } else {
-                    write!(
-                        stdout,
-                        "{}",
-                        render_line_styled(line, *line_offset, &render_opts, run.style)
-                    )?;
+                    renderer.render_into(
+                        line,
+                        *line_offset,
+                        &render_opts,
+                        run.style,
+                        &mut rendered,
+                    );
+                    stdout.write_all(&rendered)?;
                 }
             }
             if had_newline {
@@ -518,6 +540,102 @@ mod tests {
             },
         );
         assert!(String::from_utf8(output).unwrap().contains(&expected));
+    }
+
+    #[test]
+    fn prepared_animation_restores_terminal_after_write_error() {
+        struct FailOneFrame {
+            output: Vec<u8>,
+            failed: bool,
+        }
+        impl Write for FailOneFrame {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if !self.failed && bytes.contains(&b'A') {
+                    self.failed = true;
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "frame write failed",
+                    ));
+                }
+                self.output.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut output = FailOneFrame {
+            output: Vec::new(),
+            failed: false,
+        };
+        let error = animate_default(
+            &mut output,
+            &mut Cursor::new("A"),
+            &AnimateOpts::default(),
+            |_| {},
+            || false,
+            Some(80),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        assert!(output.failed);
+        assert!(output.output.ends_with(b"\x1b[0m\x1b[?25h"));
+    }
+
+    #[test]
+    fn prepared_animation_preserves_every_frame_and_direction() {
+        let line = "\x1b]8;;https://example.com\x07e\u{301} 界 👩‍💻\x1b]8;;\x07\t!";
+        for direction in [AnimationDirection::Forward, AnimationDirection::Reverse] {
+            for compact in [false, true] {
+                for truecolor in [false, true] {
+                    let opts = AnimateOpts {
+                        duration: 6,
+                        truecolor,
+                        ..AnimateOpts::default()
+                    };
+                    let style = RenderStyle {
+                        compact,
+                        ..RenderStyle::default()
+                    };
+                    let mut output = Vec::new();
+                    let mut offset = 0.0;
+                    animate_reader_to(
+                        &mut output,
+                        &mut Cursor::new(line),
+                        AnimationRun {
+                            opts: &opts,
+                            style: &style,
+                            direction,
+                        },
+                        &mut offset,
+                        |_| {},
+                        || false,
+                        || Some(80),
+                    )
+                    .unwrap();
+                    let render_opts = RenderOpts {
+                        truecolor,
+                        ..RenderOpts::default()
+                    };
+                    let mut remainder = output.as_slice();
+                    for frame in 1..=opts.duration {
+                        let phase = frame as f64 * opts.spread;
+                        let offset = match direction {
+                            AnimationDirection::Forward => 1.0 + phase,
+                            AnimationDirection::Reverse => 1.0 - phase,
+                        };
+                        let expected =
+                            crate::render::render_line_styled(line, offset, &render_opts, &style);
+                        let start = remainder
+                            .windows(expected.len())
+                            .position(|bytes| bytes == expected.as_bytes())
+                            .expect("frame must match uncached rendering");
+                        remainder = &remainder[start + expected.len()..];
+                    }
+                    assert!(output.ends_with(b"\x1b[0m\x1b[?25h"));
+                }
+            }
+        }
     }
 
     #[test]

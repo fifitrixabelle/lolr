@@ -11,7 +11,7 @@ use crossterm::QueueableCommand;
 
 use lolr::{
     animate_reader_styled_until, render_line_styled, AnimateOpts, AnimationDirection, Background,
-    Gradient, RenderOpts, RenderStyle,
+    Gradient, RenderOpts, RenderStyle, Renderer,
 };
 
 mod config;
@@ -487,6 +487,8 @@ fn render_stream(
     offset: &mut f64,
 ) -> io::Result<()> {
     let mut line = Vec::new();
+    let mut rendered = Vec::new();
+    let mut renderer = Renderer::default();
     loop {
         line.clear();
         if input.read_until(b'\n', &mut line)? == 0 {
@@ -495,7 +497,8 @@ fn render_stream(
         *offset += 1.0;
         match std::str::from_utf8(&line) {
             Ok(text) => {
-                output.write_all(render_line_styled(text, *offset, opts, style).as_bytes())?
+                renderer.render_into(text, *offset, opts, style, &mut rendered);
+                output.write_all(&rendered)?
             }
             Err(_) => output.write_all(&line)?,
         }

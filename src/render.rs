@@ -3,6 +3,7 @@ use crate::gradient::{gradient_color, Gradient, Palette};
 use anstyle_parse::{Params, Parser, Perform};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -42,16 +43,23 @@ pub struct RenderStyle {
     pub compact: bool,
 }
 
+fn linear_channel(channel: u8) -> f64 {
+    let value = channel as f64 / 255.0;
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 fn luminance(rgb: Rgb) -> f64 {
-    let linear = |channel: u8| {
-        let value = channel as f64 / 255.0;
-        if value <= 0.04045 {
-            value / 12.92
-        } else {
-            ((value + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b)
+    // RGB channels have only 256 possible values. Keep the original calculation
+    // and precision, but perform its exponentiation just once per channel value.
+    static LINEAR_CHANNELS: OnceLock<[f64; 256]> = OnceLock::new();
+    let channels = LINEAR_CHANNELS.get_or_init(|| std::array::from_fn(|i| linear_channel(i as u8)));
+    0.2126 * channels[rgb.r as usize]
+        + 0.7152 * channels[rgb.g as usize]
+        + 0.0722 * channels[rgb.b as usize]
 }
 
 fn ensure_contrast(rgb: Rgb, background: Background) -> Rgb {
@@ -114,27 +122,28 @@ fn write_decimal(output: &mut Vec<u8>, value: u8) {
     output.extend_from_slice(&digits[start..]);
 }
 
+fn write_256_color(output: &mut Vec<u8>, index: u8, invert: bool) {
+    output.extend_from_slice(if invert { b"\x1b[48;5;" } else { b"\x1b[38;5;" });
+    write_decimal(output, index);
+    output.push(b'm');
+}
+
 fn write_color(output: &mut Vec<u8>, rgb: Rgb, truecolor: bool, invert: bool) {
-    output.extend_from_slice(match (truecolor, invert) {
-        (true, false) => b"\x1b[38;2;",
-        (true, true) => b"\x1b[48;2;",
-        (false, false) => b"\x1b[38;5;",
-        (false, true) => b"\x1b[48;5;",
-    });
     if truecolor {
+        output.extend_from_slice(if invert { b"\x1b[48;2;" } else { b"\x1b[38;2;" });
         write_decimal(output, rgb.r);
         output.push(b';');
         write_decimal(output, rgb.g);
         output.push(b';');
         write_decimal(output, rgb.b);
+        output.push(b'm');
     } else {
-        write_decimal(output, rgb_to_256(rgb));
+        write_256_color(output, rgb_to_256(rgb), invert);
     }
-    output.push(b'm');
 }
 
 struct Colorize<'a> {
-    output: Vec<u8>,
+    output: &'a mut Vec<u8>,
     pending: Vec<u8>,
     text_run: Vec<u8>,
     offset: f64,
@@ -152,9 +161,17 @@ enum OutputColor {
 }
 
 impl<'a> Colorize<'a> {
-    fn new(line: &str, offset: f64, opts: &'a RenderOpts, style: &'a RenderStyle) -> Self {
+    fn new(
+        line: &str,
+        offset: f64,
+        opts: &'a RenderOpts,
+        style: &'a RenderStyle,
+        output: &'a mut Vec<u8>,
+    ) -> Self {
+        output.clear();
+        output.reserve(line.len());
         Self {
-            output: Vec::with_capacity(line.len()),
+            output,
             pending: Vec::new(),
             text_run: Vec::new(),
             offset,
@@ -224,9 +241,7 @@ impl<'a> Colorize<'a> {
             }
         } else {
             let text = std::str::from_utf8(&run).expect("parser printable text is UTF-8");
-            for grapheme in UnicodeSegmentation::graphemes(text, true) {
-                self.emit_unit(grapheme.as_bytes(), UnicodeWidthStr::width(grapheme));
-            }
+            emit_graphemes(text, GraphemeSink::Colorize(self));
         }
         run.clear();
         self.text_run = run;
@@ -243,7 +258,7 @@ impl<'a> Colorize<'a> {
             .background
             .map_or(rgb, |background| ensure_contrast(rgb, background));
         if !self.style.compact {
-            write_color(&mut self.output, rgb, self.opts.truecolor, self.opts.invert);
+            write_color(self.output, rgb, self.opts.truecolor, self.opts.invert);
             self.output.extend_from_slice(bytes);
             self.output.extend_from_slice(if self.opts.invert {
                 b"\x1b[49m"
@@ -259,7 +274,14 @@ impl<'a> Colorize<'a> {
             OutputColor::Ansi256(rgb_to_256(rgb))
         };
         if self.last_color != Some(key) {
-            write_color(&mut self.output, rgb, self.opts.truecolor, self.opts.invert);
+            match key {
+                OutputColor::Truecolor(rgb) => {
+                    write_color(self.output, rgb, true, self.opts.invert)
+                }
+                OutputColor::Ansi256(index) => {
+                    write_256_color(self.output, index, self.opts.invert)
+                }
+            }
         }
         self.output.extend_from_slice(bytes);
         self.last_color = Some(key);
@@ -399,23 +421,368 @@ pub fn render_line_styled(
     opts: &RenderOpts,
     style: &RenderStyle,
 ) -> String {
-    let mut performer = Colorize::new(line, offset, opts, style);
-    // Only bypass ANSI parsing for printable ASCII and the controls handled above.
-    if line
-        .bytes()
-        .all(|byte| matches!(byte, b' '..=b'~' | b'\t' | b'\r' | b'\n'))
-    {
+    let mut output = Vec::new();
+    render_line_styled_into(line, offset, opts, style, &mut output);
+    String::from_utf8(output).expect("rendering valid UTF-8 must produce valid UTF-8")
+}
+
+/// Render into a reusable UTF-8 byte buffer, replacing its previous contents.
+/// Retains the buffer's capacity across lines and animation frames.
+pub fn render_line_styled_into(
+    line: &str,
+    offset: f64,
+    opts: &RenderOpts,
+    style: &RenderStyle,
+    output: &mut Vec<u8>,
+) {
+    let mut performer = Colorize::new(line, offset, opts, style, output);
+    if is_plain_ascii(line) {
         performer.render_plain_ascii(line);
     } else {
         performer.render_parsed(line);
     }
+}
 
-    String::from_utf8(performer.output).expect("rendering valid UTF-8 must produce valid UTF-8")
+/// Reuses ANSI and Unicode scratch buffers when rendering successive lines.
+/// Each call starts with fresh terminal parsing and color state.
+#[derive(Debug, Default)]
+pub struct Renderer {
+    pending: Vec<u8>,
+    text_run: Vec<u8>,
+}
+
+impl Renderer {
+    /// Replace `output` with colored UTF-8 bytes, retaining buffer capacities.
+    pub fn render_into(
+        &mut self,
+        line: &str,
+        offset: f64,
+        opts: &RenderOpts,
+        style: &RenderStyle,
+        output: &mut Vec<u8>,
+    ) {
+        let mut performer = Colorize::new(line, offset, opts, style, output);
+        if is_plain_ascii(line) {
+            performer.render_plain_ascii(line);
+            return;
+        }
+        performer.pending = std::mem::take(&mut self.pending);
+        performer.text_run = std::mem::take(&mut self.text_run);
+        performer.render_parsed(line);
+        self.pending = performer.pending;
+        self.text_run = performer.text_run;
+    }
+}
+
+fn is_plain_ascii(line: &str) -> bool {
+    line.bytes()
+        .all(|byte| matches!(byte, b' '..=b'~' | b'\t' | b'\r' | b'\n'))
+}
+
+enum GraphemeSink<'sink, 'render, 'line> {
+    Colorize(&'sink mut Colorize<'render>),
+    Prepare(&'sink mut PreparedLine<'line>),
+}
+
+// A single grapheme loop keeps segmentation and width calculation optimized
+// together, rather than adding iterator calls to each rendered grapheme.
+fn emit_graphemes(text: &str, mut sink: GraphemeSink<'_, '_, '_>) {
+    for grapheme in UnicodeSegmentation::graphemes(text, true) {
+        let bytes = grapheme.as_bytes();
+        let width = UnicodeWidthStr::width(grapheme);
+        match &mut sink {
+            GraphemeSink::Colorize(colorize) => colorize.emit_unit(bytes, width),
+            GraphemeSink::Prepare(prepared) => prepared.record(bytes, Some(width)),
+        }
+    }
+}
+
+// Keep preparation separate from the concrete streaming hot path. The parity
+// tests below cover control boundaries, grapheme widths and rendering options.
+struct PrepareParser<'a, 'line> {
+    prepared: &'a mut PreparedLine<'line>,
+    pending: Vec<u8>,
+    text_run: Vec<u8>,
+    fast_ascii: bool,
+}
+
+impl PrepareParser<'_, '_> {
+    fn render_parsed(&mut self, line: &str) {
+        let mut parser: Parser = Parser::default();
+        for &byte in line.as_bytes() {
+            // Ruby lolcat expands every tab to eight spaces before parsing ANSI.
+            let bytes: &[u8] = if byte == b'\t' { b"        " } else { &[byte] };
+            for &expanded in bytes {
+                self.pending.push(expanded);
+                parser.advance(self, expanded);
+            }
+        }
+        self.flush_control();
+    }
+
+    fn flush_control(&mut self) {
+        self.flush_text();
+        self.reset_compact();
+        self.prepared.record(&self.pending, None);
+        self.pending.clear();
+    }
+
+    fn reset_compact(&mut self) {
+        self.prepared.record(&[], None);
+    }
+
+    fn flush_text(&mut self) {
+        if self.text_run.is_empty() {
+            return;
+        }
+        let mut run = std::mem::take(&mut self.text_run);
+        if run.is_ascii() {
+            for &byte in &run {
+                self.emit_unit(&[byte], 1);
+            }
+        } else {
+            let text = std::str::from_utf8(&run).expect("parser printable text is UTF-8");
+            emit_graphemes(text, GraphemeSink::Prepare(self.prepared));
+        }
+        run.clear();
+        self.text_run = run;
+    }
+
+    fn emit_unit(&mut self, bytes: &[u8], width: usize) {
+        self.prepared.record(bytes, Some(width));
+    }
+}
+
+impl Perform for PrepareParser<'_, '_> {
+    fn print(&mut self, ch: char) {
+        let char_start = self.pending.len() - ch.len_utf8();
+        if self.fast_ascii {
+            if char_start > 0 {
+                self.reset_compact();
+                self.prepared.record(&self.pending[..char_start], None);
+            }
+            let byte = self.pending[char_start];
+            self.emit_unit(&[byte], 1);
+            self.pending.clear();
+            return;
+        }
+        if char_start > 0 {
+            self.flush_text();
+            self.reset_compact();
+            self.prepared.record(&self.pending[..char_start], None);
+        }
+        self.text_run.extend_from_slice(&self.pending[char_start..]);
+        self.pending.clear();
+    }
+
+    fn execute(&mut self, _byte: u8) {
+        self.flush_control();
+    }
+
+    fn hook(&mut self, _params: &Params, _intermediates: &[u8], _ignore: bool, _action: u8) {
+        self.flush_control();
+    }
+
+    fn put(&mut self, _byte: u8) {
+        self.flush_control();
+    }
+
+    fn unhook(&mut self) {
+        self.flush_control();
+    }
+
+    fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {
+        self.flush_control();
+    }
+
+    fn csi_dispatch(
+        &mut self,
+        _params: &Params,
+        _intermediates: &[u8],
+        _ignore: bool,
+        _action: u8,
+    ) {
+        self.flush_control();
+    }
+
+    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {
+        self.flush_control();
+    }
+}
+
+/// Text prepared once for repeated rendering at different color offsets.
+/// Preserves ANSI controls and grapheme widths; it buffers only this line.
+#[derive(Debug)]
+pub struct PreparedLine<'a> {
+    plain_ascii: Option<&'a str>,
+    bytes: Vec<u8>,
+    tokens: Vec<PreparedToken>,
+}
+
+#[derive(Debug)]
+struct PreparedToken {
+    end: usize,
+    width: Option<usize>,
+}
+
+impl<'a> PreparedLine<'a> {
+    fn record(&mut self, bytes: &[u8], width: Option<usize>) {
+        self.bytes.extend_from_slice(bytes);
+        self.tokens.push(PreparedToken {
+            end: self.bytes.len(),
+            width,
+        });
+    }
+
+    pub fn new(line: &'a str) -> Self {
+        let mut prepared = Self {
+            plain_ascii: None,
+            bytes: Vec::new(),
+            tokens: Vec::new(),
+        };
+        if is_plain_ascii(line) {
+            prepared.plain_ascii = Some(line);
+        } else {
+            let mut parser = PrepareParser {
+                prepared: &mut prepared,
+                pending: Vec::new(),
+                text_run: Vec::new(),
+                fast_ascii: line.is_ascii(),
+            };
+            parser.render_parsed(line);
+        }
+        prepared
+    }
+
+    /// Replace `output` with this line rendered at the requested color offset.
+    pub fn render_into(
+        &self,
+        offset: f64,
+        opts: &RenderOpts,
+        style: &RenderStyle,
+        output: &mut Vec<u8>,
+    ) {
+        let line = self.plain_ascii.unwrap_or("");
+        let mut colorize = Colorize::new(line, offset, opts, style, output);
+        if let Some(line) = self.plain_ascii {
+            colorize.render_plain_ascii(line);
+        } else {
+            let mut start = 0;
+            for token in &self.tokens {
+                let bytes = &self.bytes[start..token.end];
+                if let Some(width) = token.width {
+                    colorize.emit_unit(bytes, width);
+                } else {
+                    colorize.reset_compact();
+                    colorize.output.extend_from_slice(bytes);
+                }
+                start = token.end;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reference_luminance(rgb: Rgb) -> f64 {
+        0.2126 * linear_channel(rgb.r)
+            + 0.7152 * linear_channel(rgb.g)
+            + 0.0722 * linear_channel(rgb.b)
+    }
+
+    fn reference_contrast(rgb: Rgb, background: Background) -> Rgb {
+        let target = match background {
+            Background::Dark => 0.175,
+            Background::Light => 1.05 / 4.5 - 0.05,
+        };
+        let current = reference_luminance(rgb);
+        if matches!(background, Background::Dark) && current >= target
+            || matches!(background, Background::Light) && current <= target
+        {
+            return rgb;
+        }
+
+        let end = match background {
+            Background::Dark => 255.0,
+            Background::Light => 0.0,
+        };
+        let mut low = 0.0;
+        let mut high = 1.0;
+        for _ in 0..12 {
+            let middle = (low + high) / 2.0;
+            let blend =
+                |channel: u8| (channel as f64 + (end - channel as f64) * middle).round() as u8;
+            let candidate = Rgb {
+                r: blend(rgb.r),
+                g: blend(rgb.g),
+                b: blend(rgb.b),
+            };
+            let enough = match background {
+                Background::Dark => reference_luminance(candidate) >= target,
+                Background::Light => reference_luminance(candidate) <= target,
+            };
+            if enough {
+                high = middle;
+            } else {
+                low = middle;
+            }
+        }
+        let blend = |channel: u8| (channel as f64 + (end - channel as f64) * high).round() as u8;
+        Rgb {
+            r: blend(rgb.r),
+            g: blend(rgb.g),
+            b: blend(rgb.b),
+        }
+    }
+
+    #[test]
+    fn lookup_contrast_matches_original_math() {
+        for channel in 0..=255u8 {
+            for rgb in [
+                Rgb {
+                    r: channel,
+                    g: 0,
+                    b: 0,
+                },
+                Rgb {
+                    r: 0,
+                    g: channel,
+                    b: 0,
+                },
+                Rgb {
+                    r: 0,
+                    g: 0,
+                    b: channel,
+                },
+            ] {
+                assert_eq!(luminance(rgb).to_bits(), reference_luminance(rgb).to_bits());
+            }
+        }
+        // Include grayscale and combinations spanning the full RGB cube.
+        for r in 0..=255u8 {
+            for g in (0..=255u8).step_by(17) {
+                for b in (0..=255u8).step_by(17) {
+                    let rgb = Rgb { r, g, b };
+                    assert_eq!(luminance(rgb).to_bits(), reference_luminance(rgb).to_bits());
+                    for background in [Background::Dark, Background::Light] {
+                        assert_eq!(
+                            ensure_contrast(rgb, background),
+                            reference_contrast(rgb, background)
+                        );
+                    }
+                }
+            }
+            let gray = Rgb { r, g: r, b: r };
+            for background in [Background::Dark, Background::Light] {
+                assert_eq!(
+                    ensure_contrast(gray, background),
+                    reference_contrast(gray, background)
+                );
+            }
+        }
+    }
 
     #[test]
     fn ascii_fast_path_matches_parser_output() {
@@ -430,6 +797,8 @@ mod tests {
             },
         ])
         .unwrap();
+        let mut reused = Vec::new();
+        let mut renderer = Renderer::default();
         for gradient in Gradient::ALL {
             for truecolor in [false, true] {
                 for invert in [false, true] {
@@ -458,11 +827,30 @@ mod tests {
                                     "a\x1b[",
                                     "café 界 👩‍💻 e\u{301}\n",
                                 ] {
-                                    let mut reference = Colorize::new(input, 42.5, &opts, &style);
+                                    let mut output = Vec::new();
+                                    let mut reference =
+                                        Colorize::new(input, 42.5, &opts, &style, &mut output);
                                     reference.render_parsed(input);
+                                    render_line_styled_into(
+                                        input,
+                                        42.5,
+                                        &opts,
+                                        &style,
+                                        &mut reused,
+                                    );
+                                    assert_eq!(reused, reference.output.as_slice());
+                                    renderer.render_into(input, 42.5, &opts, &style, &mut reused);
+                                    assert_eq!(reused, reference.output.as_slice());
+                                    PreparedLine::new(input).render_into(
+                                        42.5,
+                                        &opts,
+                                        &style,
+                                        &mut reused,
+                                    );
+                                    assert_eq!(reused, reference.output.as_slice());
                                     assert_eq!(
                                         render_line_styled(input, 42.5, &opts, &style).as_bytes(),
-                                        reference.output,
+                                        reference.output.as_slice(),
                                         "{input:?}, {opts:?}, {style:?}"
                                     );
                                 }
@@ -471,6 +859,70 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn reusable_output_retains_storage_and_clears_previous_contents() {
+        let opts = RenderOpts::default();
+        let style = RenderStyle::default();
+        let mut output = Vec::with_capacity(4096);
+        let capacity = output.capacity();
+        let storage = output.as_ptr();
+        for line in [
+            "longer ASCII line",
+            "café 界 👩‍💻",
+            "a\x1b[1mb\x1b[0m",
+            "\t",
+            "",
+        ] {
+            render_line_styled_into(line, 0.0, &opts, &style, &mut output);
+            assert_eq!(output.capacity(), capacity);
+            assert_eq!(output.as_ptr(), storage);
+        }
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn scratch_buffers_are_reused_without_carrying_escape_state_between_lines() {
+        let opts = RenderOpts::default();
+        let style = RenderStyle {
+            compact: true,
+            ..RenderStyle::default()
+        };
+        let mut renderer = Renderer::default();
+        let mut output = Vec::new();
+        let input = "\x1b]0;a long terminal title\x07café 界 👩‍💻 e\u{301}";
+        renderer.render_into(input, 0.0, &opts, &style, &mut output);
+        let pending = renderer.pending.as_ptr();
+        let text = renderer.text_run.as_ptr();
+        for line in [input, "unfinished\x1b]", "next line", "", "e\u{301}"] {
+            renderer.render_into(line, 7.0, &opts, &style, &mut output);
+            assert_eq!(
+                output,
+                render_line_styled(line, 7.0, &opts, &style).as_bytes()
+            );
+            assert_eq!(renderer.pending.as_ptr(), pending);
+            assert_eq!(renderer.text_run.as_ptr(), text);
+        }
+    }
+
+    #[test]
+    fn prepared_line_recomputes_colors_at_each_offset() {
+        let opts = RenderOpts::default();
+        let style = RenderStyle {
+            compact: true,
+            ..RenderStyle::default()
+        };
+        let input = "\x1b[1me\u{301} 界 👩‍💻\x1b[0m\t!\n";
+        let prepared = PreparedLine::new(input);
+        let mut output = Vec::new();
+        for offset in [0.0, 42.5, -7.0, 1e6] {
+            prepared.render_into(offset, &opts, &style, &mut output);
+            assert_eq!(
+                output,
+                render_line_styled(input, offset, &opts, &style).as_bytes()
+            );
         }
     }
 

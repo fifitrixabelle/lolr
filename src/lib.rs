@@ -9,4 +9,7 @@ pub use animate::{
 };
 pub use color::{rainbow_color, rgb_to_256, Rgb};
 pub use gradient::{gradient_color, Gradient, Palette, ParseGradientError};
-pub use render::{render_line, render_line_styled, Background, RenderOpts, RenderStyle};
+pub use render::{
+    render_line, render_line_styled, render_line_styled_into, Background, PreparedLine, RenderOpts,
+    RenderStyle, Renderer,
+};
