@@ -190,6 +190,25 @@ fn no_color_requested() -> bool {
     std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
 }
 
+fn restore_terminal() {
+    #[cfg(unix)]
+    unsafe {
+        let reset = b"\x1b[0m\x1b[?25h";
+        libc::write(
+            libc::STDOUT_FILENO,
+            reset.as_ptr() as *const libc::c_void,
+            reset.len(),
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        let mut stdout = io::stdout();
+        let _ = stdout.queue(ResetColor);
+        let _ = stdout.queue(Show);
+        let _ = stdout.flush();
+    }
+}
+
 enum CliError {
     Io(io::Error),
     Reported,
@@ -355,7 +374,11 @@ fn run() -> Result<(), CliError> {
     let stdout = io::stdout();
     let is_stdout_tty = stdout.is_terminal();
     if is_stdout_tty {
-        let _ = ctrlc::set_handler(|| INTERRUPTED.store(true, Ordering::Relaxed));
+        let _ = ctrlc::set_handler(|| {
+            INTERRUPTED.store(true, Ordering::Relaxed);
+            restore_terminal();
+            std::process::exit(130);
+        });
     }
 
     if !args.force && (!is_stdout_tty || no_color_requested()) {

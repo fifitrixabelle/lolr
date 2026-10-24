@@ -636,3 +636,84 @@ fn generate_completion_outputs_shell_script() {
         .stdout(predicate::str::contains("_lolr"));
     assert!(!config_home.path().join("lolr/config.toml").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn sigint_stops_interactive_lolr_and_restores_terminal() {
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+    use std::{ptr, thread};
+
+    let mut master: libc::c_int = 0;
+    let mut slave: libc::c_int = 0;
+    assert_eq!(
+        unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        },
+        0
+    );
+
+    let bin_path = assert_cmd::cargo::cargo_bin("lolr");
+    let mut child = unsafe {
+        Command::new(bin_path)
+            .pre_exec(move || {
+                libc::close(master);
+                if libc::login_tty(slave) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            })
+            .spawn()
+            .unwrap()
+    };
+
+    unsafe {
+        libc::close(slave);
+    }
+
+    thread::sleep(Duration::from_millis(300));
+
+    unsafe {
+        libc::kill(child.id() as libc::pid_t, libc::SIGINT);
+    }
+
+    // Set master to non-blocking so we can read any emitted terminal sequences
+    unsafe {
+        let flags = libc::fcntl(master, libc::F_GETFL);
+        libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+
+    let start = Instant::now();
+    let mut status = None;
+    let mut output = Vec::new();
+    let mut buf = [0u8; 1024];
+
+    while start.elapsed() < Duration::from_secs(3) {
+        let n = unsafe { libc::read(master, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        if n > 0 {
+            output.extend_from_slice(&buf[..n as usize]);
+        }
+        if let Ok(Some(s)) = child.try_wait() {
+            status = Some(s);
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    unsafe {
+        libc::close(master);
+    }
+
+    let status = status.expect("interactive lolr should exit promptly after SIGINT");
+    assert_eq!(status.code(), Some(130));
+    assert!(output
+        .windows(10)
+        .any(|window| window == b"\x1b[0m\x1b[?25h"));
+}
