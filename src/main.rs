@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::parser::ValueSource;
 use clap::{ArgAction, CommandFactory, FromArgMatches, Parser};
+use clap_complete::{generate, Shell};
 use crossterm::cursor::Show;
 use crossterm::style::ResetColor;
 use crossterm::QueueableCommand;
@@ -137,6 +138,10 @@ struct Args {
     #[arg(long)]
     no_continuous: bool,
 
+    /// Generate shell completions and exit
+    #[arg(long, value_name = "SHELL")]
+    generate_completion: Option<Shell>,
+
     /// Print version
     #[arg(short = 'v', short_alias = 'V', long, action = ArgAction::Version)]
     version: Option<bool>,
@@ -222,6 +227,12 @@ fn run() -> Result<(), CliError> {
         for gradient in Gradient::ALL {
             writeln!(stdout, "{}", gradient.as_str())?;
         }
+        return Ok(());
+    }
+
+    if let Some(shell) = args.generate_completion {
+        let mut cmd = Args::command();
+        generate(shell, &mut cmd, "lolr", &mut io::stdout());
         return Ok(());
     }
 
@@ -356,7 +367,7 @@ fn run() -> Result<(), CliError> {
     }
 
     let seed = if args.seed == 0 {
-        rand::random_range(0..256) as f64
+        fastrand::u8(..) as f64
     } else {
         args.seed as f64
     };

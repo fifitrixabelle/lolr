@@ -21,7 +21,7 @@ predictable, and fun. Read `README.md` before changing user-facing behavior.
 - Restore terminal color and cursor visibility on cancellation and I/O errors.
   Lines that cannot be redrawn safely should still render once.
 - CLI options override config. Keep `--no-*` overrides working. Help, version,
-  gradient listing, preview, and config-path queries must not create a config
+  gradient listing, preview, shell completion, and config-path queries must not create a config
   file. Honor `NO_COLOR` unless `--force` or configured `force = true` overrides it.
 - Preserve ASCII/Ruby color output by default. Named palettes, contrast,
   continuous file coloring, reverse animation, and compact output are opt-in.

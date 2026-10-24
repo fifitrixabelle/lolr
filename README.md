@@ -117,6 +117,7 @@ Compare results on the same machine and Rust toolchain before and after changes.
 | | `--no-compact` | Override configured compact mode | off |
 | | `--continuous` | Keep color position across files | off |
 | | `--no-continuous` | Override configured continuous mode | off |
+| | `--generate-completion SHELL` | Generate shell completions (bash, zsh, fish, etc.) and exit | |
 | `-i` | `--invert` | Swap foreground/background | off |
 | | `--no-invert` | Override configured inversion | off |
 | `-t` | `--truecolor` | Force 24-bit color | auto |
@@ -148,7 +149,7 @@ the path in this order:
 4. `~/.config/lolr/config.toml`
 
 Run `lolr --print-config-path` to see the resolved path. `--help`, `--version`,
-`--list-gradients`, `--preview`, and `--print-config-path` do not create the file. Use
+`--list-gradients`, `--preview`, `--generate-completion`, and `--print-config-path` do not create the file. Use
 `--no-config` to bypass loading and creation, including to recover from a broken
 config.
 

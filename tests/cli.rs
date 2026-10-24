@@ -625,3 +625,14 @@ fn resolves_config_via_appdata_when_home_is_unset() {
         .success()
         .stdout(format!("{}\n", expected.display()));
 }
+
+#[test]
+fn generate_completion_outputs_shell_script() {
+    let config_home = tempfile::tempdir().unwrap();
+    lolr_with_config_home(config_home.path())
+        .args(["--generate-completion", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("_lolr"));
+    assert!(!config_home.path().join("lolr/config.toml").exists());
+}

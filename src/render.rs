@@ -196,7 +196,10 @@ impl<'a> Colorize<'a> {
         output: &'a mut Vec<u8>,
     ) -> Self {
         output.clear();
-        output.reserve(line.len());
+        let target = line.len().saturating_mul(12);
+        if output.capacity() < target {
+            output.reserve(target - output.capacity());
+        }
         Self {
             output,
             pending: Vec::new(),

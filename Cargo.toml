@@ -17,9 +17,10 @@ exclude = [
 [dependencies]
 anstyle-parse = "1"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 crossterm = "0.29"
 ctrlc = "3"
-rand = "0.10"
+fastrand = "2"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 toml = "1.1"
