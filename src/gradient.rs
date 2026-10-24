@@ -167,64 +167,236 @@ fn lerp_color(colors: &[(f64, Rgb)], t: f64) -> Rgb {
     })
 }
 
+const FIRE_STOPS: &[(f64, Rgb)] = &[
+    (0.0, Rgb { r: 128, g: 0, b: 0 }),
+    (0.3, Rgb { r: 255, g: 0, b: 0 }),
+    (
+        0.6,
+        Rgb {
+            r: 255,
+            g: 165,
+            b: 0,
+        },
+    ),
+    (
+        1.0,
+        Rgb {
+            r: 255,
+            g: 255,
+            b: 0,
+        },
+    ),
+];
+
+const OCEAN_STOPS: &[(f64, Rgb)] = &[
+    (0.0, Rgb { r: 0, g: 0, b: 128 }),
+    (
+        0.4,
+        Rgb {
+            r: 0,
+            g: 128,
+            b: 255,
+        },
+    ),
+    (
+        0.7,
+        Rgb {
+            r: 0,
+            g: 255,
+            b: 255,
+        },
+    ),
+    (
+        1.0,
+        Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        },
+    ),
+];
+
+const SUNSET_STOPS: &[(f64, Rgb)] = &[
+    (
+        0.0,
+        Rgb {
+            r: 45,
+            g: 27,
+            b: 105,
+        },
+    ),
+    (
+        0.25,
+        Rgb {
+            r: 128,
+            g: 0,
+            b: 128,
+        },
+    ),
+    (
+        0.5,
+        Rgb {
+            r: 255,
+            g: 64,
+            b: 129,
+        },
+    ),
+    (
+        0.75,
+        Rgb {
+            r: 255,
+            g: 140,
+            b: 66,
+        },
+    ),
+    (
+        1.0,
+        Rgb {
+            r: 255,
+            g: 214,
+            b: 102,
+        },
+    ),
+];
+
+const FOREST_STOPS: &[(f64, Rgb)] = &[
+    (
+        0.0,
+        Rgb {
+            r: 10,
+            g: 54,
+            b: 34,
+        },
+    ),
+    (
+        0.33,
+        Rgb {
+            r: 20,
+            g: 120,
+            b: 70,
+        },
+    ),
+    (
+        0.66,
+        Rgb {
+            r: 77,
+            g: 184,
+            b: 72,
+        },
+    ),
+    (
+        1.0,
+        Rgb {
+            r: 218,
+            g: 236,
+            b: 126,
+        },
+    ),
+];
+
+const SYNTHWAVE_STOPS: &[(f64, Rgb)] = &[
+    (
+        0.0,
+        Rgb {
+            r: 94,
+            g: 23,
+            b: 235,
+        },
+    ),
+    (
+        0.35,
+        Rgb {
+            r: 207,
+            g: 37,
+            b: 247,
+        },
+    ),
+    (
+        0.65,
+        Rgb {
+            r: 255,
+            g: 41,
+            b: 117,
+        },
+    ),
+    (
+        1.0,
+        Rgb {
+            r: 0,
+            g: 229,
+            b: 255,
+        },
+    ),
+];
+
+const VIRIDIS_STOPS: &[(f64, Rgb)] = &[
+    (0.0, Rgb { r: 68, g: 1, b: 84 }),
+    (
+        0.25,
+        Rgb {
+            r: 59,
+            g: 82,
+            b: 139,
+        },
+    ),
+    (
+        0.5,
+        Rgb {
+            r: 33,
+            g: 145,
+            b: 140,
+        },
+    ),
+    (
+        0.75,
+        Rgb {
+            r: 94,
+            g: 201,
+            b: 98,
+        },
+    ),
+    (
+        1.0,
+        Rgb {
+            r: 253,
+            g: 231,
+            b: 37,
+        },
+    ),
+];
+
+const AURA_STOPS: &[(f64, Rgb)] = &[
+    (
+        0.0,
+        Rgb {
+            r: 162,
+            g: 119,
+            b: 255,
+        },
+    ),
+    (
+        0.5,
+        Rgb {
+            r: 97,
+            g: 255,
+            b: 202,
+        },
+    ),
+    (
+        1.0,
+        Rgb {
+            r: 162,
+            g: 119,
+            b: 255,
+        },
+    ),
+];
+
 pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
     match gradient {
         Gradient::Rainbow => rainbow_color(freq, i),
-        Gradient::Fire => {
-            let t = ((freq * i).sin() + 1.0) / 2.0;
-            let stops = [
-                (0.0, Rgb { r: 128, g: 0, b: 0 }),
-                (0.3, Rgb { r: 255, g: 0, b: 0 }),
-                (
-                    0.6,
-                    Rgb {
-                        r: 255,
-                        g: 165,
-                        b: 0,
-                    },
-                ),
-                (
-                    1.0,
-                    Rgb {
-                        r: 255,
-                        g: 255,
-                        b: 0,
-                    },
-                ),
-            ];
-            lerp_color(&stops, t)
-        }
-        Gradient::Ocean => {
-            let t = ((freq * i).sin() + 1.0) / 2.0;
-            let stops = [
-                (0.0, Rgb { r: 0, g: 0, b: 128 }),
-                (
-                    0.4,
-                    Rgb {
-                        r: 0,
-                        g: 128,
-                        b: 255,
-                    },
-                ),
-                (
-                    0.7,
-                    Rgb {
-                        r: 0,
-                        g: 255,
-                        b: 255,
-                    },
-                ),
-                (
-                    1.0,
-                    Rgb {
-                        r: 255,
-                        g: 255,
-                        b: 255,
-                    },
-                ),
-            ];
-            lerp_color(&stops, t)
-        }
+        Gradient::Fire => lerp_color(FIRE_STOPS, ((freq * i).sin() + 1.0) / 2.0),
+        Gradient::Ocean => lerp_color(OCEAN_STOPS, ((freq * i).sin() + 1.0) / 2.0),
         Gradient::Pastel => {
             let base = rainbow_color(freq, i);
             Rgb {
@@ -241,197 +413,11 @@ pub fn gradient_color(gradient: Gradient, freq: f64, i: f64) -> Rgb {
                 b: base.b.saturating_add(30),
             }
         }
-        Gradient::Sunset => {
-            let t = ((freq * i).sin() + 1.0) / 2.0;
-            let stops = [
-                (
-                    0.0,
-                    Rgb {
-                        r: 45,
-                        g: 27,
-                        b: 105,
-                    },
-                ),
-                (
-                    0.25,
-                    Rgb {
-                        r: 128,
-                        g: 0,
-                        b: 128,
-                    },
-                ),
-                (
-                    0.5,
-                    Rgb {
-                        r: 255,
-                        g: 64,
-                        b: 129,
-                    },
-                ),
-                (
-                    0.75,
-                    Rgb {
-                        r: 255,
-                        g: 140,
-                        b: 66,
-                    },
-                ),
-                (
-                    1.0,
-                    Rgb {
-                        r: 255,
-                        g: 214,
-                        b: 102,
-                    },
-                ),
-            ];
-            lerp_color(&stops, t)
-        }
-        Gradient::Forest => {
-            let t = ((freq * i).sin() + 1.0) / 2.0;
-            let stops = [
-                (
-                    0.0,
-                    Rgb {
-                        r: 10,
-                        g: 54,
-                        b: 34,
-                    },
-                ),
-                (
-                    0.33,
-                    Rgb {
-                        r: 20,
-                        g: 120,
-                        b: 70,
-                    },
-                ),
-                (
-                    0.66,
-                    Rgb {
-                        r: 77,
-                        g: 184,
-                        b: 72,
-                    },
-                ),
-                (
-                    1.0,
-                    Rgb {
-                        r: 218,
-                        g: 236,
-                        b: 126,
-                    },
-                ),
-            ];
-            lerp_color(&stops, t)
-        }
-        Gradient::Synthwave => {
-            let t = ((freq * i).sin() + 1.0) / 2.0;
-            let stops = [
-                (
-                    0.0,
-                    Rgb {
-                        r: 94,
-                        g: 23,
-                        b: 235,
-                    },
-                ),
-                (
-                    0.35,
-                    Rgb {
-                        r: 207,
-                        g: 37,
-                        b: 247,
-                    },
-                ),
-                (
-                    0.65,
-                    Rgb {
-                        r: 255,
-                        g: 41,
-                        b: 117,
-                    },
-                ),
-                (
-                    1.0,
-                    Rgb {
-                        r: 0,
-                        g: 229,
-                        b: 255,
-                    },
-                ),
-            ];
-            lerp_color(&stops, t)
-        }
-        Gradient::Viridis => {
-            let t = ((freq * i).sin() + 1.0) / 2.0;
-            let stops = [
-                (0.0, Rgb { r: 68, g: 1, b: 84 }),
-                (
-                    0.25,
-                    Rgb {
-                        r: 59,
-                        g: 82,
-                        b: 139,
-                    },
-                ),
-                (
-                    0.5,
-                    Rgb {
-                        r: 33,
-                        g: 145,
-                        b: 140,
-                    },
-                ),
-                (
-                    0.75,
-                    Rgb {
-                        r: 94,
-                        g: 201,
-                        b: 98,
-                    },
-                ),
-                (
-                    1.0,
-                    Rgb {
-                        r: 253,
-                        g: 231,
-                        b: 37,
-                    },
-                ),
-            ];
-            lerp_color(&stops, t)
-        }
-        Gradient::Aura => {
-            let t = ((freq * i).sin() + 1.0) / 2.0;
-            let stops = [
-                (
-                    0.0,
-                    Rgb {
-                        r: 162,
-                        g: 119,
-                        b: 255,
-                    },
-                ),
-                (
-                    0.5,
-                    Rgb {
-                        r: 97,
-                        g: 255,
-                        b: 202,
-                    },
-                ),
-                (
-                    1.0,
-                    Rgb {
-                        r: 162,
-                        g: 119,
-                        b: 255,
-                    },
-                ),
-            ];
-            lerp_color(&stops, t)
-        }
+        Gradient::Sunset => lerp_color(SUNSET_STOPS, ((freq * i).sin() + 1.0) / 2.0),
+        Gradient::Forest => lerp_color(FOREST_STOPS, ((freq * i).sin() + 1.0) / 2.0),
+        Gradient::Synthwave => lerp_color(SYNTHWAVE_STOPS, ((freq * i).sin() + 1.0) / 2.0),
+        Gradient::Viridis => lerp_color(VIRIDIS_STOPS, ((freq * i).sin() + 1.0) / 2.0),
+        Gradient::Aura => lerp_color(AURA_STOPS, ((freq * i).sin() + 1.0) / 2.0),
     }
 }
 

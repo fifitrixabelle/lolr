@@ -7,6 +7,12 @@ license = "MIT"
 repository = "https://github.com/fifitrixabelle/lolr"
 keywords = ["cli", "terminal", "rainbow", "lolcat", "ansi"]
 categories = ["command-line-utilities"]
+readme = "README.md"
+exclude = [
+    "docs/",
+    ".github/",
+    ".pre-commit-config.yaml",
+]
 
 [dependencies]
 anstyle-parse = "1"

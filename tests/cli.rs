@@ -583,3 +583,45 @@ fn invalid_palette_is_rejected_with_its_name() {
         .failure()
         .stderr(predicate::str::contains("palettes.candy"));
 }
+
+#[test]
+fn missing_file_reports_error_and_continues_processing() {
+    let mut file1 = NamedTempFile::new().unwrap();
+    let mut file2 = NamedTempFile::new().unwrap();
+    file1.write_all(b"first\n").unwrap();
+    file2.write_all(b"second\n").unwrap();
+
+    let missing = "missing_nonexistent_test_file.txt";
+
+    lolr()
+        .args([
+            file1.path().to_str().unwrap(),
+            missing,
+            file2.path().to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(format!("lolr: {missing}: ")))
+        .stdout(predicate::str::contains("first\n"))
+        .stdout(predicate::str::contains("second\n"));
+}
+
+#[test]
+fn resolves_config_via_appdata_when_home_is_unset() {
+    let directory = tempfile::tempdir().unwrap();
+    let appdata = directory.path().join("AppData/Roaming");
+    fs::create_dir_all(appdata.join("lolr")).unwrap();
+    let expected = appdata.join("lolr/config.toml");
+    fs::write(&expected, "force = true\n").unwrap();
+
+    let mut command = assert_cmd::Command::cargo_bin("lolr").unwrap();
+    command.env_remove("XDG_CONFIG_HOME");
+    command.env_remove("HOME");
+    command.env_remove("LOLR_CONFIG");
+    command.env("APPDATA", &appdata);
+    command
+        .arg("--print-config-path")
+        .assert()
+        .success()
+        .stdout(format!("{}\n", expected.display()));
+}

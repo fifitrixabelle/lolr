@@ -3,11 +3,12 @@ use crate::gradient::{gradient_color, Gradient, Palette};
 use anstyle_parse::{Params, Parser, Perform};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::sync::OnceLock;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderOpts {
     pub gradient: Gradient,
     pub spread: f64,
@@ -36,7 +37,7 @@ pub enum Background {
     Light,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct RenderStyle {
     pub palette: Option<Palette>,
     pub background: Option<Background>,
@@ -62,7 +63,7 @@ fn luminance(rgb: Rgb) -> f64 {
         + 0.0722 * channels[rgb.b as usize]
 }
 
-fn ensure_contrast(rgb: Rgb, background: Background) -> Rgb {
+fn compute_contrast(rgb: Rgb, background: Background) -> Rgb {
     let target = match background {
         Background::Dark => 0.175,
         Background::Light => 1.05 / 4.5 - 0.05,
@@ -104,6 +105,32 @@ fn ensure_contrast(rgb: Rgb, background: Background) -> Rgb {
         g: blend(rgb.g),
         b: blend(rgb.b),
     }
+}
+
+fn ensure_contrast(rgb: Rgb, background: Background) -> Rgb {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static CONTRAST_CACHE: RefCell<[(u32, Rgb); 1024]> = const { RefCell::new([(0, Rgb { r: 0, g: 0, b: 0 }); 1024]) };
+    }
+
+    let bg_flag = match background {
+        Background::Dark => 0u32,
+        Background::Light => 1u32,
+    };
+    let key = (bg_flag << 24) | ((rgb.r as u32) << 16) | ((rgb.g as u32) << 8) | (rgb.b as u32);
+    let idx = (key.wrapping_mul(0x9E3779B9) >> 22) as usize & 1023;
+    let tag = key.wrapping_add(1);
+
+    CONTRAST_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache[idx].0 == tag {
+            return cache[idx].1;
+        }
+        let result = compute_contrast(rgb, background);
+        cache[idx] = (tag, result);
+        result
+    })
 }
 
 fn write_decimal(output: &mut Vec<u8>, value: u8) {
@@ -397,7 +424,10 @@ impl Perform for AnimationFilter {
 
 /// Remove terminal-editing sequences which must not be replayed on every
 /// animation frame. The first frame still receives the original input.
-pub(crate) fn filter_replayed_animation_controls(input: &str) -> String {
+pub(crate) fn filter_replayed_animation_controls<'a>(input: &'a str) -> Cow<'a, str> {
+    if !input.as_bytes().contains(&0x1b) {
+        return Cow::Borrowed(input);
+    }
     let mut parser: Parser = Parser::default();
     let mut filter = AnimationFilter {
         output: Vec::with_capacity(input.len()),
@@ -408,7 +438,9 @@ pub(crate) fn filter_replayed_animation_controls(input: &str) -> String {
         parser.advance(&mut filter, byte);
     }
     filter.flush();
-    String::from_utf8(filter.output).expect("filtering valid UTF-8 must produce valid UTF-8")
+    Cow::Owned(
+        String::from_utf8(filter.output).expect("filtering valid UTF-8 must produce valid UTF-8"),
+    )
 }
 
 pub fn render_line(line: &str, offset: f64, opts: &RenderOpts) -> String {
@@ -1028,9 +1060,14 @@ mod tests {
     fn animation_filter_only_removes_terminal_editing_controls() {
         let input = "\x1b[31mred\x1b[K!\x1b[0m";
         assert_eq!(
-            filter_replayed_animation_controls(input),
+            filter_replayed_animation_controls(input).as_ref(),
             "\x1b[31mred!\x1b[0m"
         );
+        let plain = "just plain ascii";
+        assert!(matches!(
+            filter_replayed_animation_controls(plain),
+            Cow::Borrowed(_)
+        ));
     }
 
     #[test]

@@ -23,7 +23,7 @@ pub enum AnimationDirection {
     Reverse,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnimateOpts {
     pub gradient: Gradient,
     pub spread: f64,
@@ -105,7 +105,14 @@ impl Perform for LineWidth {
     }
 }
 
+fn is_plain_ascii_no_tabs(line: &str) -> bool {
+    line.bytes().all(|byte| matches!(byte, b' '..=b'~'))
+}
+
 fn line_redraw_width(line: &str) -> Option<usize> {
+    if is_plain_ascii_no_tabs(line) {
+        return Some(line.len());
+    }
     let mut parser: Parser = Parser::default();
     let mut width = LineWidth {
         columns: 0,
@@ -175,8 +182,12 @@ where
                 stdout.flush()?;
                 continue;
             };
-            let had_newline = input_text.ends_with('\n');
-            let line = input_text.strip_suffix('\n').unwrap_or(input_text);
+            let had_crlf = input_text.ends_with("\r\n");
+            let had_newline = had_crlf || input_text.ends_with('\n');
+            let line = input_text
+                .strip_suffix("\r\n")
+                .or_else(|| input_text.strip_suffix('\n'))
+                .unwrap_or(input_text);
             *line_offset += 1.0;
             if !line.is_empty() {
                 let redraw_width = columns()
@@ -184,8 +195,9 @@ where
                 if let Some(redraw_width) = redraw_width {
                     stdout.queue(SavePosition)?;
                     let replay_line = filter_replayed_animation_controls(line);
-                    let prepared = (opts.duration > 1).then(|| PreparedLine::new(&replay_line));
-                    let same_replay = line == replay_line;
+                    let prepared =
+                        (opts.duration > 1).then(|| PreparedLine::new(replay_line.as_ref()));
+                    let same_replay = line == replay_line.as_ref();
                     let started = Instant::now();
                     for frame in 1..=opts.duration {
                         if cancelled() {
@@ -208,7 +220,11 @@ where
                             AnimationDirection::Forward => *line_offset + phase,
                             AnimationDirection::Reverse => *line_offset - phase,
                         };
-                        let frame_line = if frame == 1 { line } else { &replay_line };
+                        let frame_line = if frame == 1 {
+                            line
+                        } else {
+                            replay_line.as_ref()
+                        };
                         if let Some(prepared) =
                             prepared.as_ref().filter(|_| frame > 1 || same_replay)
                         {
@@ -236,8 +252,10 @@ where
                     stdout.write_all(&rendered)?;
                 }
             }
-            if had_newline {
-                writeln!(stdout)?;
+            if had_crlf {
+                stdout.write_all(b"\r\n")?;
+            } else if had_newline {
+                stdout.write_all(b"\n")?;
             }
             stdout.flush()?;
         }
@@ -382,6 +400,31 @@ mod tests {
         assert!(output.contains(&expected));
         assert!(output.contains(&format!("{expected}\n")));
         assert!(output.ends_with("\x1b[0m\x1b[?25h"));
+    }
+
+    #[test]
+    fn animation_animates_crlf_input_and_preserves_crlf_line_ending() {
+        let opts = AnimateOpts {
+            duration: 2,
+            speed: 20.0,
+            truecolor: true,
+            seed: 10.0,
+            ..AnimateOpts::default()
+        };
+        let mut output = Vec::new();
+        animate_default(
+            &mut output,
+            &mut Cursor::new("x\r\n"),
+            &opts,
+            |_| {},
+            || false,
+            Some(80),
+        )
+        .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        // Since duration is 2, it should perform cursor save & restore (animation redraws)
+        assert!(output.contains("\x1b7") || output.contains("\x1b[s"));
+        assert!(output.ends_with("\r\n\x1b[0m\x1b[?25h"));
     }
 
     #[test]

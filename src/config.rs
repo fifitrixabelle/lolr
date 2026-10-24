@@ -86,14 +86,22 @@ impl Config {
             }
         }
 
-        nonempty_env_path("HOME")
-            .map(|home| home.join(".config/lolr/config.toml"))
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "cannot locate config directory: set HOME, XDG_CONFIG_HOME, or LOLR_CONFIG",
-                )
-            })
+        if let Some(home) = nonempty_env_path("HOME") {
+            return Ok(home.join(".config/lolr/config.toml"));
+        }
+
+        if let Some(appdata) = nonempty_env_path("APPDATA") {
+            return Ok(appdata.join("lolr/config.toml"));
+        }
+
+        if let Some(userprofile) = nonempty_env_path("USERPROFILE") {
+            return Ok(userprofile.join(".config/lolr/config.toml"));
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "cannot locate config directory: set HOME, XDG_CONFIG_HOME, LOLR_CONFIG, APPDATA, or USERPROFILE",
+        ))
     }
 
     pub fn load_or_create(path: &Path) -> io::Result<Self> {

@@ -185,7 +185,34 @@ fn no_color_requested() -> bool {
     std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
 }
 
-fn main() -> io::Result<()> {
+enum CliError {
+    Io(io::Error),
+    Reported,
+}
+
+impl From<io::Error> for CliError {
+    fn from(error: io::Error) -> Self {
+        CliError::Io(error)
+    }
+}
+
+fn main() {
+    match run() {
+        Ok(()) => {}
+        Err(CliError::Reported) => {
+            std::process::exit(1);
+        }
+        Err(CliError::Io(err)) => {
+            if err.kind() == io::ErrorKind::BrokenPipe {
+                std::process::exit(0);
+            }
+            eprintln!("lolr: {err}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run() -> Result<(), CliError> {
     let matches = Args::command().get_matches();
     let mut args = Args::from_arg_matches(&matches).expect("arguments should be valid");
 
@@ -298,10 +325,10 @@ fn main() -> io::Result<()> {
     apply_config(&mut args, &matches, &config);
 
     if args.invert && args.background.is_some() {
-        return Err(io::Error::new(
+        return Err(CliError::Io(io::Error::new(
             io::ErrorKind::InvalidInput,
             "--background cannot be combined with --invert: contrast adjustment applies to foreground colors",
-        ));
+        )));
     }
 
     let style = RenderStyle {
@@ -316,6 +343,9 @@ fn main() -> io::Result<()> {
 
     let stdout = io::stdout();
     let is_stdout_tty = stdout.is_terminal();
+    if is_stdout_tty {
+        let _ = ctrlc::set_handler(|| INTERRUPTED.store(true, Ordering::Relaxed));
+    }
 
     if !args.force && (!is_stdout_tty || no_color_requested()) {
         let mut stdout = stdout.lock();
@@ -350,16 +380,10 @@ fn main() -> io::Result<()> {
             truecolor: render_opts.truecolor,
             invert: render_opts.invert,
         };
-        let mut interrupt_handler_installed = false;
         let mut line_offset = seed;
         return with_inputs(&args.files, |input| {
             if INTERRUPTED.load(Ordering::Relaxed) {
                 return Ok(());
-            }
-            if !interrupt_handler_installed {
-                ctrlc::set_handler(|| INTERRUPTED.store(true, Ordering::Relaxed))
-                    .map_err(io::Error::other)?;
-                interrupt_handler_installed = true;
             }
             if !args.continuous {
                 line_offset = seed;
@@ -392,7 +416,7 @@ fn main() -> io::Result<()> {
     } else {
         Ok(())
     };
-    render_result.and(cleanup_result)
+    render_result.and(cleanup_result.map_err(CliError::Io))
 }
 
 fn apply_config(args: &mut Args, matches: &clap::ArgMatches, config: &Config) {
@@ -459,24 +483,48 @@ fn apply_config(args: &mut Args, matches: &clap::ArgMatches, config: &Config) {
     }
 }
 
-fn with_inputs<F>(files: &[String], mut process: F) -> io::Result<()>
+fn with_inputs<F>(files: &[String], mut process: F) -> Result<(), CliError>
 where
     F: FnMut(&mut dyn BufRead) -> io::Result<()>,
 {
     let stdin = io::stdin();
     if files.is_empty() {
-        return process(&mut stdin.lock());
+        return process(&mut stdin.lock()).map_err(CliError::Io);
     }
 
+    let mut had_error = false;
     for path in files {
         if path == "-" {
-            process(&mut stdin.lock())?;
+            if let Err(error) = process(&mut stdin.lock()) {
+                if error.kind() == io::ErrorKind::BrokenPipe {
+                    return Err(CliError::Io(error));
+                }
+                eprintln!("lolr: -: {error}");
+                had_error = true;
+            }
         } else {
-            let file = File::open(Path::new(path))?;
-            process(&mut BufReader::new(file))?;
+            match File::open(Path::new(path)) {
+                Ok(file) => {
+                    if let Err(error) = process(&mut BufReader::new(file)) {
+                        if error.kind() == io::ErrorKind::BrokenPipe {
+                            return Err(CliError::Io(error));
+                        }
+                        eprintln!("lolr: {path}: {error}");
+                        had_error = true;
+                    }
+                }
+                Err(error) => {
+                    eprintln!("lolr: {path}: {error}");
+                    had_error = true;
+                }
+            }
         }
     }
-    Ok(())
+    if had_error {
+        Err(CliError::Reported)
+    } else {
+        Ok(())
+    }
 }
 
 fn render_stream(
@@ -490,6 +538,9 @@ fn render_stream(
     let mut rendered = Vec::new();
     let mut renderer = Renderer::default();
     loop {
+        if INTERRUPTED.load(Ordering::Relaxed) {
+            return Ok(());
+        }
         line.clear();
         if input.read_until(b'\n', &mut line)? == 0 {
             return Ok(());
