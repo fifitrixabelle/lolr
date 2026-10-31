@@ -133,37 +133,47 @@ fn ensure_contrast(rgb: Rgb, background: Background) -> Rgb {
     })
 }
 
-fn write_decimal(output: &mut Vec<u8>, value: u8) {
-    let mut digits = [b'0'; 3];
-    digits[2] += value % 10;
-    let start = if value >= 100 {
-        digits[0] += value / 100;
-        digits[1] += value / 10 % 10;
-        0
+#[inline]
+fn push_decimal(buf: &mut [u8], len: usize, value: u8) -> usize {
+    if value >= 100 {
+        buf[len] = b'0' + value / 100;
+        buf[len + 1] = b'0' + (value / 10 % 10);
+        buf[len + 2] = b'0' + (value % 10);
+        len + 3
     } else if value >= 10 {
-        digits[1] += value / 10;
-        1
+        buf[len] = b'0' + (value / 10);
+        buf[len + 1] = b'0' + (value % 10);
+        len + 2
     } else {
-        2
-    };
-    output.extend_from_slice(&digits[start..]);
+        buf[len] = b'0' + value;
+        len + 1
+    }
 }
 
 fn write_256_color(output: &mut Vec<u8>, index: u8, invert: bool) {
-    output.extend_from_slice(if invert { b"\x1b[48;5;" } else { b"\x1b[38;5;" });
-    write_decimal(output, index);
-    output.push(b'm');
+    let mut buf = [0u8; 16];
+    let prefix = if invert { b"\x1b[48;5;" } else { b"\x1b[38;5;" };
+    buf[..7].copy_from_slice(prefix);
+    let len = push_decimal(&mut buf, 7, index);
+    buf[len] = b'm';
+    output.extend_from_slice(&buf[..len + 1]);
 }
 
 fn write_color(output: &mut Vec<u8>, rgb: Rgb, truecolor: bool, invert: bool) {
     if truecolor {
-        output.extend_from_slice(if invert { b"\x1b[48;2;" } else { b"\x1b[38;2;" });
-        write_decimal(output, rgb.r);
-        output.push(b';');
-        write_decimal(output, rgb.g);
-        output.push(b';');
-        write_decimal(output, rgb.b);
-        output.push(b'm');
+        let mut buf = [0u8; 24];
+        let prefix = if invert { b"\x1b[48;2;" } else { b"\x1b[38;2;" };
+        buf[..7].copy_from_slice(prefix);
+        let mut len = 7;
+        len = push_decimal(&mut buf, len, rgb.r);
+        buf[len] = b';';
+        len += 1;
+        len = push_decimal(&mut buf, len, rgb.g);
+        buf[len] = b';';
+        len += 1;
+        len = push_decimal(&mut buf, len, rgb.b);
+        buf[len] = b'm';
+        output.extend_from_slice(&buf[..len + 1]);
     } else {
         write_256_color(output, rgb_to_256(rgb), invert);
     }

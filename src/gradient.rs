@@ -147,7 +147,7 @@ impl Palette {
 }
 
 fn lerp_color(colors: &[(f64, Rgb)], t: f64) -> Rgb {
-    let t = t.rem_euclid(1.0);
+    let t = t.clamp(0.0, 1.0);
     for window in colors.windows(2) {
         let (t0, c0) = window[0];
         let (t1, c1) = window[1];
@@ -436,6 +436,38 @@ mod tests {
     fn fire_gradient_is_warm() {
         let color = gradient_color(Gradient::Fire, 0.1, 0.0);
         assert!(color.r >= color.b);
+    }
+
+    #[test]
+    fn lerp_gradients_reach_boundary_stops_without_glitching() {
+        use std::f64::consts::FRAC_PI_2;
+        // Peak of sine wave: freq * i == PI / 2 -> sin == 1.0 -> t == 1.0 (last stop)
+        let fire_peak = gradient_color(Gradient::Fire, 1.0, FRAC_PI_2);
+        assert_eq!(
+            fire_peak,
+            Rgb {
+                r: 255,
+                g: 255,
+                b: 0
+            }
+        );
+
+        // Trough of sine wave: freq * i == -PI / 2 -> sin == -1.0 -> t == 0.0 (first stop)
+        let fire_trough = gradient_color(Gradient::Fire, 1.0, -FRAC_PI_2);
+        assert_eq!(fire_trough, Rgb { r: 128, g: 0, b: 0 });
+
+        let ocean_peak = gradient_color(Gradient::Ocean, 1.0, FRAC_PI_2);
+        assert_eq!(
+            ocean_peak,
+            Rgb {
+                r: 255,
+                g: 255,
+                b: 255
+            }
+        );
+
+        let ocean_trough = gradient_color(Gradient::Ocean, 1.0, -FRAC_PI_2);
+        assert_eq!(ocean_trough, Rgb { r: 0, g: 0, b: 128 });
     }
 
     #[test]

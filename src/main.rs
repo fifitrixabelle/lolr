@@ -435,13 +435,25 @@ fn run() -> Result<(), CliError> {
 
     let mut stdout = stdout.lock();
     let mut offset = seed;
-    let render_result = with_inputs(&args.files, |input| {
-        // Ruby lolcat restarts the seeded gradient for each input source.
-        if !args.continuous {
-            offset = seed;
-        }
-        render_stream(input, &mut stdout, &render_opts, &style, &mut offset)
-    });
+    let render_result = if is_stdout_tty {
+        with_inputs(&args.files, |input| {
+            // Ruby lolcat restarts the seeded gradient for each input source.
+            if !args.continuous {
+                offset = seed;
+            }
+            render_stream(input, &mut stdout, &render_opts, &style, &mut offset)
+        })
+    } else {
+        let mut writer = io::BufWriter::with_capacity(64 * 1024, &mut stdout);
+        let result = with_inputs(&args.files, |input| {
+            if !args.continuous {
+                offset = seed;
+            }
+            render_stream(input, &mut writer, &render_opts, &style, &mut offset)
+        });
+        let flush_result = writer.flush().map_err(CliError::Io);
+        result.and(flush_result)
+    };
     let cleanup_result = if is_stdout_tty {
         stdout
             .queue(ResetColor)
